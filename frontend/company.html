@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Aether — Company Dashboard</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:     #0f1117;
+      --card:   #1a2030;
+      --border: #252f42;
+      --accent: #7dd3fc;
+      --blue:   #2563eb;
+      --green:  #4ade80;
+      --red:    #ef4444;
+      --amber:  #f59e0b;
+      --text:   #e2e8f0;
+      --muted:  #64748b;
+      --dim:    #475569;
+      --nav-h:  60px;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: var(--bg); color: var(--text);
+      min-height: 100vh; font-size: 0.9rem;
+    }
+
+    /* ── NAV ─────────────────────────────────────────────────────────────── */
+    .nav {
+      position: sticky; top: 0; z-index: 200;
+      height: var(--nav-h);
+      background: rgba(26,32,48,0.92);
+      backdrop-filter: blur(14px);
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 1.5rem; gap: 1rem;
+    }
+    .nav-left  { display: flex; align-items: center; gap: 0.75rem; }
+    .nav-right { display: flex; align-items: center; gap: 1rem; flex-shrink: 0; }
+
+    .nav-logo {
+      width: 34px; height: 34px;
+      background: linear-gradient(135deg, #14532d, #15803d);
+      border-radius: 9px; display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 0 16px rgba(21,128,61,0.3);
+    }
+    .nav-logo svg { width: 18px; height: 18px; stroke: #86efac; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .nav-brand { font-size: 1.05rem; font-weight: 700; letter-spacing: -0.02em; }
+    .nav-brand span { color: var(--accent); }
+
+    .role-badge {
+      font-size: 0.64rem; font-weight: 700; letter-spacing: 0.08em;
+      text-transform: uppercase; padding: 0.2rem 0.55rem;
+      border-radius: 999px; border: 1px solid;
+    }
+    .role-badge.company { background: rgba(21,128,61,0.15); color: #86efac; border-color: rgba(21,128,61,0.35); }
+
+    .ws-pill { display: flex; align-items: center; gap: 0.4rem; font-size: 0.72rem; color: var(--muted); }
+    .ws-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--dim); transition: background 0.3s;
+    }
+    .ws-dot.connected    { background: var(--green); box-shadow: 0 0 6px var(--green); }
+    .ws-dot.disconnected { background: var(--red); }
+    .ws-dot.connecting   { background: var(--amber); animation: pulse 1s infinite; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+    .nav-user { display: flex; align-items: center; gap: 0.6rem; font-size: 0.82rem; color: var(--muted); }
+    .nav-username { color: var(--text); font-weight: 500; }
+    .btn-nav {
+      background: rgba(255,255,255,0.05); border: 1px solid var(--border);
+      color: var(--muted); border-radius: 0.45rem;
+      padding: 0.35rem 0.75rem; font-size: 0.77rem; cursor: pointer;
+      transition: background 0.15s, color 0.15s; font-family: inherit;
+    }
+    .btn-nav:hover { background: rgba(239,68,68,0.15); color: #fca5a5; border-color: rgba(239,68,68,0.3); }
+
+    /* ── MAIN ────────────────────────────────────────────────────────────── */
+    .main { max-width: 1400px; margin: 0 auto; padding: 1.75rem 1.5rem 3rem; }
+
+    .page-header {
+      display: flex; align-items: flex-end; justify-content: space-between;
+      margin-bottom: 1.5rem; flex-wrap: wrap; gap: 0.75rem;
+    }
+    .page-title { font-size: 1.4rem; font-weight: 700; letter-spacing: -0.02em; }
+    .page-sub   { font-size: 0.78rem; color: var(--muted); margin-top: 0.15rem; }
+    .last-update { font-size: 0.72rem; color: var(--dim); }
+
+    /* ── STATS ───────────────────────────────────────────────────────────── */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 0.75rem; margin-bottom: 1.75rem;
+    }
+    .stat-card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 0.875rem; padding: 1.1rem 1.25rem;
+    }
+    .stat-icon {
+      width: 32px; height: 32px; border-radius: 8px;
+      display: flex; align-items: center; justify-content: center; margin-bottom: 0.65rem;
+    }
+    .stat-icon svg { width: 16px; height: 16px; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .stat-icon.blue   { background: rgba(37,99,235,0.18); }   .stat-icon.blue   svg { stroke: #93c5fd; }
+    .stat-icon.green  { background: rgba(74,222,128,0.15); }  .stat-icon.green  svg { stroke: var(--green); }
+    .stat-icon.muted  { background: rgba(100,116,139,0.15); } .stat-icon.muted  svg { stroke: var(--muted); }
+    .stat-icon.red    { background: rgba(239,68,68,0.15); }   .stat-icon.red    svg { stroke: #fca5a5; }
+    .stat-icon.amber  { background: rgba(245,158,11,0.15); }  .stat-icon.amber  svg { stroke: #fcd34d; }
+
+    .stat-val { font-size: 1.85rem; font-weight: 700; line-height: 1; margin-bottom: 0.25rem; }
+    .stat-lbl { font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.07em; }
+
+    /* ── SECTION HEADER ──────────────────────────────────────────────────── */
+    .section-head {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 1rem;
+    }
+    .section-title { font-size: 0.95rem; font-weight: 600; }
+    .section-meta  { font-size: 0.72rem; color: var(--dim); margin-top: 0.1rem; }
+
+    .btn-sm {
+      display: flex; align-items: center; gap: 0.4rem;
+      background: rgba(255,255,255,0.04); border: 1px solid var(--border);
+      color: var(--muted); border-radius: 0.45rem;
+      padding: 0.35rem 0.8rem; font-size: 0.77rem; cursor: pointer;
+      transition: all 0.15s; font-family: inherit;
+    }
+    .btn-sm:hover { background: rgba(255,255,255,0.08); color: var(--text); }
+    .btn-sm svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+    /* ── MACHINE CARDS ───────────────────────────────────────────────────── */
+    .machine-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 1rem; margin-bottom: 2rem;
+    }
+    .mc {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 1rem; padding: 1.2rem;
+      transition: border-color 0.2s, box-shadow 0.2s;
+      display: flex; flex-direction: column;
+    }
+    .mc:hover { border-color: #334155; box-shadow: 0 4px 20px rgba(0,0,0,0.3); }
+    .mc[data-status="error"]  { border-color: rgba(239,68,68,0.3); }
+    .mc[data-status="online"] { border-color: rgba(74,222,128,0.15); }
+
+    .mc-head {
+      display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem;
+    }
+    .mc-status-row { display: flex; align-items: center; gap: 0.45rem; }
+    .status-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+    .status-dot.online  { background: var(--green); box-shadow: 0 0 6px var(--green); }
+    .status-dot.offline { background: var(--dim); }
+    .status-dot.error   { background: var(--red); box-shadow: 0 0 6px var(--red); animation: pulse 1.2s infinite; }
+
+    .mc-serial { font-size: 0.8rem; font-weight: 700; font-family: monospace; color: var(--accent); }
+    .status-badge {
+      font-size: 0.6rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.07em; padding: 0.15rem 0.45rem; border-radius: 4px;
+    }
+    .status-badge.online  { background: rgba(74,222,128,0.15); color: #86efac; }
+    .status-badge.offline { background: rgba(100,116,139,0.15); color: var(--muted); }
+    .status-badge.error   { background: rgba(239,68,68,0.15);  color: #fca5a5; }
+
+    .mc-fw   { font-size: 0.65rem; color: var(--dim); font-family: monospace; }
+    .mc-name { font-size: 0.95rem; font-weight: 600; margin-bottom: 0.2rem; }
+
+    .mc-metrics { display: flex; flex-direction: column; gap: 0.65rem; margin-top: 0.85rem; margin-bottom: 0.85rem; }
+    .mc-metric  { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+    .mc-lbl { font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); flex-shrink: 0; }
+    .mc-val { font-size: 0.82rem; font-weight: 500; }
+
+    .mc-bar-wrap { display: flex; align-items: center; gap: 0.55rem; }
+    .bar-track { flex: 1; height: 6px; background: #0f1117; border-radius: 3px; overflow: hidden; min-width: 60px; }
+    .bar-fill { height: 100%; border-radius: 3px; transition: width 0.4s; }
+    .bar-fill.c-green { background: linear-gradient(90deg, #166534, #4ade80); }
+    .bar-fill.c-amber { background: linear-gradient(90deg, #92400e, #f59e0b); }
+    .bar-fill.c-red   { background: linear-gradient(90deg, #991b1b, #ef4444); }
+    .bar-fill.c-blue  { background: linear-gradient(90deg, #1e3a8a, #2563eb); }
+
+    .mc-rssi-wrap { display: flex; align-items: center; gap: 0.45rem; }
+    .sig-bars { display: flex; align-items: flex-end; gap: 2px; height: 16px; }
+    .sig-bar  { width: 5px; border-radius: 2px 2px 0 0; background: var(--border); }
+    .sig-bar:nth-child(1){height:4px} .sig-bar:nth-child(2){height:8px}
+    .sig-bar:nth-child(3){height:12px} .sig-bar:nth-child(4){height:16px}
+    .sig-bar.lit.c-green { background: var(--green); }
+    .sig-bar.lit.c-amber { background: var(--amber); }
+    .sig-bar.lit.c-red   { background: var(--red); }
+
+    .mc-foot {
+      display: flex; align-items: center; justify-content: space-between;
+      padding-top: 0.75rem; border-top: 1px solid #1e293b; margin-top: auto;
+    }
+    .mc-last { font-size: 0.68rem; }
+
+    /* ── ACTIVITY LOG ────────────────────────────────────────────────────── */
+    .log-wrap {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 1rem; overflow: hidden;
+    }
+    .log-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+    .log-table thead th {
+      background: #131928; padding: 0.65rem 1rem;
+      text-align: left; font-size: 0.65rem; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.08em; color: var(--dim);
+      border-bottom: 1px solid var(--border);
+    }
+    .log-table tbody tr { border-bottom: 1px solid #1e293b; }
+    .log-table tbody tr:last-child { border-bottom: none; }
+    .log-table tbody tr:hover { background: rgba(255,255,255,0.02); }
+    .log-table td { padding: 0.6rem 1rem; vertical-align: middle; }
+    .log-msg { max-width: 340px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    .badge {
+      display: inline-block; font-size: 0.62rem; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.06em;
+      padding: 0.18rem 0.5rem; border-radius: 4px;
+    }
+    .badge-blue   { background: rgba(37,99,235,0.2);  color: #93c5fd; }
+    .badge-green  { background: rgba(74,222,128,0.2); color: #86efac; }
+    .badge-red    { background: rgba(239,68,68,0.2);  color: #fca5a5; }
+    .badge-amber  { background: rgba(245,158,11,0.2); color: #fcd34d; }
+    .badge-purple { background: rgba(168,85,247,0.2); color: #d8b4fe; }
+    .badge-muted  { background: rgba(100,116,139,0.2);color: var(--muted); }
+
+    /* ── TOAST ───────────────────────────────────────────────────────────── */
+    #toastArea {
+      position: fixed; bottom: 1.5rem; right: 1.5rem;
+      display: flex; flex-direction: column; gap: 0.5rem;
+      z-index: 600; pointer-events: none;
+    }
+    .toast {
+      display: flex; align-items: center; gap: 0.6rem;
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 0.65rem; padding: 0.7rem 1rem;
+      font-size: 0.82rem; min-width: 240px; max-width: 360px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+      opacity: 0; transform: translateX(20px);
+      transition: opacity 0.25s, transform 0.25s;
+      pointer-events: auto;
+    }
+    .toast.show { opacity: 1; transform: none; }
+    .toast-icon { font-size: 0.95rem; flex-shrink: 0; }
+    .toast-success { border-color: rgba(74,222,128,0.3);  } .toast-success .toast-icon { color: var(--green); }
+    .toast-error   { border-color: rgba(239,68,68,0.3);   } .toast-error   .toast-icon { color: #f87171; }
+    .toast-warning { border-color: rgba(245,158,11,0.3);  } .toast-warning .toast-icon { color: #fbbf24; }
+    .toast-info    { border-color: rgba(37,99,235,0.3);   } .toast-info    .toast-icon { color: var(--accent); }
+
+    /* ── UTILITIES ───────────────────────────────────────────────────────── */
+    .c-green  { color: var(--green); }
+    .c-red    { color: #f87171; }
+    .c-amber  { color: #fbbf24; }
+    .c-accent { color: var(--accent); }
+    .c-muted  { color: var(--muted); }
+    .c-blue   { color: #93c5fd; }
+    .mono     { font-family: monospace; }
+
+    .empty-state {
+      text-align: center; padding: 3rem 1rem; color: var(--muted); font-size: 0.85rem;
+    }
+    .empty-state svg { width: 40px; height: 40px; stroke: var(--border); fill: none; stroke-width: 1.5; margin-bottom: 0.75rem; display: block; margin-inline: auto; }
+
+    /* ── READ-ONLY NOTICE ────────────────────────────────────────────────── */
+    .readonly-notice {
+      display: flex; align-items: center; gap: 0.6rem;
+      background: rgba(37,99,235,0.06); border: 1px solid rgba(37,99,235,0.15);
+      border-radius: 0.65rem; padding: 0.65rem 1rem;
+      font-size: 0.78rem; color: var(--muted); margin-bottom: 1.5rem;
+    }
+    .readonly-notice svg { width: 15px; height: 15px; stroke: #93c5fd; fill: none; stroke-width: 2; flex-shrink: 0; }
+  </style>
+</head>
+<body>
+
+  <!-- ── NAVBAR ─────────────────────────────────────────────────────────────── -->
+  <nav class="nav">
+    <div class="nav-left">
+      <div class="nav-logo">
+        <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/><circle cx="16" cy="9" r="2"/><path d="M7 8h2M7 11h3"/></svg>
+      </div>
+      <span class="nav-brand">Aether<span>.</span></span>
+      <span class="role-badge company">Company</span>
+    </div>
+
+    <div class="nav-right">
+      <div class="ws-pill">
+        <div class="ws-dot connecting" id="wsDot"></div>
+        <span id="wsTxt">Connecting...</span>
+      </div>
+      <div class="nav-user">
+        <span class="nav-username" id="navUser">—</span>
+        <button class="btn-nav" onclick="logout()">Sign Out</button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ── MAIN ───────────────────────────────────────────────────────────────── -->
+  <main class="main">
+
+    <div class="page-header">
+      <div>
+        <div class="page-title">Your Fleet</div>
+        <div class="page-sub" id="companyName">Loading your company machines...</div>
+      </div>
+      <span class="last-update" id="lastUpdate">—</span>
+    </div>
+
+    <!-- Read-only notice -->
+    <div class="readonly-notice">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      You are viewing your assigned machines in read-only mode. Contact your Aether administrator to perform calibrations or configuration changes.
+    </div>
+
+    <!-- Stats -->
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-icon blue">
+          <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+        </div>
+        <div class="stat-val" id="statTotal">—</div>
+        <div class="stat-lbl">Your Machines</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon green">
+          <svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+        </div>
+        <div class="stat-val c-green" id="statOnline">—</div>
+        <div class="stat-lbl">Online</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon muted">
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+        </div>
+        <div class="stat-val c-muted" id="statOffline">—</div>
+        <div class="stat-lbl">Offline</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon red">
+          <svg viewBox="0 0 24 24"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        </div>
+        <div class="stat-val c-red" id="statErrors">—</div>
+        <div class="stat-lbl">Errors</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon amber">
+          <svg viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+        </div>
+        <div class="stat-val c-amber" id="statLowStock">—</div>
+        <div class="stat-lbl">Low Stock</div>
+      </div>
+    </div>
+
+    <!-- Machine grid -->
+    <div class="section-head">
+      <div>
+        <div class="section-title">Machines</div>
+        <div class="section-meta" id="machineCount"></div>
+      </div>
+      <button class="btn-sm" onclick="refreshAll()">
+        <svg viewBox="0 0 24 24"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.44"/></svg>
+        Refresh
+      </button>
+    </div>
+    <div class="machine-grid" id="machineGrid">
+      <div class="empty-state">
+        <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+        Loading your machines...
+      </div>
+    </div>
+
+    <!-- Activity log -->
+    <div class="section-head">
+      <div>
+        <div class="section-title">Activity Log</div>
+        <div class="section-meta">Last 50 events for your fleet</div>
+      </div>
+      <button class="btn-sm" onclick="loadLogs()">
+        <svg viewBox="0 0 24 24"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.44"/></svg>
+        Refresh
+      </button>
+    </div>
+    <div class="log-wrap">
+      <table class="log-table">
+        <thead>
+          <tr>
+            <th>Type</th><th>Serial</th><th>Machine</th>
+            <th>Message</th><th>By</th><th>Time</th>
+          </tr>
+        </thead>
+        <tbody id="logBody">
+          <tr><td colspan="6" class="empty-state">Loading logs...</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+  </main>
+
+  <!-- ── TOAST AREA ────────────────────────────────────────────────────────── -->
+  <div id="toastArea"></div>
+
+  <!-- ── CONFIG: update before deploying to cPanel ───────────────────────── -->
+  <!-- <script>window.AETHER_API_BASE = 'https://your-app.azurewebsites.net';</script> -->
+  <script src="app.js"></script>
+  <script>
+    // ── Auth guard ────────────────────────────────────────────────────────
+    authGuard('company');
+    const _user = getUser();
+    document.getElementById('navUser').textContent = _user.username;
+
+    // ── State ─────────────────────────────────────────────────────────────
+    const machines = new Map();
+
+    // ── WS status ─────────────────────────────────────────────────────────
+    function setWsStatus(state) {
+      const dot = document.getElementById('wsDot');
+      const txt = document.getElementById('wsTxt');
+      dot.className = 'ws-dot ' + state;
+      txt.textContent = { connected: 'Live', disconnected: 'Reconnecting…', connecting: 'Connecting…', error: 'Error' }[state] || state;
+    }
+
+    // ── WS callbacks ──────────────────────────────────────────────────────
+    connectDashboardWS({
+      onStatus: (state) => setWsStatus(state),
+      onMachinesList: (list) => {
+        list.forEach(m => machines.set(m.id, m));
+        renderGrid();
+        // Show company name from first machine
+        if (list.length > 0 && list[0].company_name) {
+          document.getElementById('companyName').textContent = list[0].company_name + ' — your assigned machines';
+        }
+      },
+      onMachineUpdate: (m) => {
+        // Company users only see their own machines — the server already filters
+        if (machines.has(m.id)) {
+          machines.set(m.id, m);
+          updateMachineCard(m, false, machines);
+          document.getElementById('lastUpdate').textContent = 'Updated just now';
+          refreshStats();
+        }
+      },
+      onAlert: (alert) => {
+        const cls = alert.level === 'error' ? 'error' : 'warning';
+        showToast(`${alert.serial}: ${alert.message}`, cls, 7000);
+      },
+    });
+
+    // ── Render grid ───────────────────────────────────────────────────────
+    function renderGrid() {
+      const grid = document.getElementById('machineGrid');
+      if (machines.size === 0) {
+        grid.innerHTML = '<div class="empty-state"><svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>No machines assigned to your company.</div>';
+        return;
+      }
+      // Company view: isAdmin = false (no calibrate button)
+      grid.innerHTML = [...machines.values()].map(m => renderMachineCard(m, false)).join('');
+      document.getElementById('machineCount').textContent = `${machines.size} machine${machines.size !== 1 ? 's' : ''} assigned`;
+    }
+
+    // ── Stats ─────────────────────────────────────────────────────────────
+    async function refreshStats() {
+      try {
+        const stats = await apiFetch('/api/stats');
+        applyStats(stats);
+      } catch { /* silently skip */ }
+    }
+
+    // ── Logs ──────────────────────────────────────────────────────────────
+    async function loadLogs() {
+      try {
+        const logs = await apiFetch('/api/logs?limit=50');
+        const tbody = document.getElementById('logBody');
+        if (!logs || logs.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No log entries yet.</td></tr>';
+          return;
+        }
+        tbody.innerHTML = logs.map(renderLogRow).join('');
+      } catch (e) {
+        showToast('Failed to load logs: ' + e.message, 'error');
+      }
+    }
+
+    // ── Full refresh ──────────────────────────────────────────────────────
+    async function refreshAll() {
+      try {
+        const list = await apiFetch('/api/machines');
+        list.forEach(m => machines.set(m.id, m));
+        renderGrid();
+        document.getElementById('lastUpdate').textContent = 'Refreshed just now';
+      } catch (e) {
+        showToast('Refresh failed: ' + e.message, 'error');
+      }
+      refreshStats();
+      loadLogs();
+    }
+
+    // ── Init ──────────────────────────────────────────────────────────────
+    async function init() {
+      await refreshStats();
+      await loadLogs();
+      setTimeout(() => { if (machines.size === 0) refreshAll(); }, 3000);
+    }
+
+    init();
+    setInterval(refreshStats, 60000);
+    setInterval(loadLogs, 30000);
+  </script>
+</body>
+</html>
