@@ -325,10 +325,11 @@ void moveTo(int target) {
         }
         delayMicroseconds(currentDelay);
 
-        if (i % 200 == 0) {
+        if (i % 120 == 0) {
             if (wifiServersUp) { ws.loop(); server.handleClient(); }
             animationFrame++;
             oledDirty = true;
+            updateOLED();
         }
     }
 
@@ -526,7 +527,11 @@ void homing() {
     for (int i = 0; i < homingSteps; i++) {
         doStep(-i);
         delayMicroseconds(SPEED_HOME);
-        if (i % 200 == 0) { animationFrame++; oledDirty = true; }
+        if (i % 200 == 0) { 
+            animationFrame++; 
+            oledDirty = true; 
+            updateOLED(); 
+        }
     }
     delay(100);
     for (int i = 0; i < 60; i++) { doStep(i);      delayMicroseconds(SPEED_HOME); }
