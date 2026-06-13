@@ -1,13 +1,20 @@
+# Backup: Aether Vending Machine Local Firmware (Pre-Web-Testing)
+*Timestamp: 2026-06-13T23:59:58+02:00*
+
+Below is the complete source code of `Aether_Vending_Machine.ino` (local Wi-Fi Web Server and local WebSockets version) before transitioning to the internet/MQTT architecture.
+
+```cpp
 /*
- * SANITARY VENDING MACHINE — ESP32-C3  v13.0 (INTERNET GATEWAY)
- * CINEMATIC BOOT SEQUENCE + MQTT REMOTE GATEWAY
+ * SANITARY VENDING MACHINE — ESP32-C3  v13.0
+ * CINEMATIC BOOT SEQUENCE
  * Particle burst, glitch reveal, expanding logo, synced motor,
- * and a premium living READY screen displaying Device ID.
+ * typewriter IP reveal, and a premium living READY screen.
  */
 
 #include <Arduino.h>
 #include <WiFi.h>
-#include <PubSubClient.h>
+#include <WebServer.h>
+#include <WebSocketsServer.h>
 #include <SPI.h>
 #include <MFRC522.h>
 #include <Wire.h>
@@ -18,18 +25,23 @@
 // ================================================
 //  PINS & HARDWARE MAP (ESP32-C3 SUPER MINI)
 // ================================================
+// DRV8833 Stepper Motor Driver Input Pins
 const int AIN1 = 5;
 const int AIN2 = 6;
 const int BIN1 = 7;
 const int BIN2 = 8;
+
+// Passive Piezo Buzzer Audio Notification Pin
 const int BUZZER_PIN = 4;
 
+// MFRC522 RFID SPI Connection Pins
 #define RST_PIN  10
 #define SS_PIN    0   // SDA / SPI Chip Select
 #define MOSI_PIN  1   // SPI MOSI
 #define MISO_PIN  2   // SPI MISO
 #define SCK_PIN   3   // SPI Clock
 
+// SSD1306 OLED Display I2C Connection Pins
 #define OLED_SCL      20  // I2C Clock
 #define OLED_SDA      21  // I2C Data
 #define SCREEN_WIDTH  128
@@ -63,37 +75,22 @@ const uint8_t HALF_STEP[8][4] = {
 };
 
 // ================================================
-//  NETWORKING & MQTT
+//  NETWORKING
 // ================================================
+#define WS_PORT   81
+#define HTTP_PORT 80
+
 const int NUM_NETWORKS = 2;
-const char* WIFI_SSIDS[NUM_NETWORKS]  = { "VOO-2413CT6", "Taqi IP15" };
+const char* WIFI_SSIDS[NUM_NETWORKS]  = { "Taqi IP15", "VOO-2413CT6" };
 const char* WIFI_PASSES[NUM_NETWORKS] = { "12345679", "12345679" };
 String activeSSID = "None";
 
-enum WifiState {
-    WIFI_IDLE,
-    WIFI_SCANNING,
-    WIFI_CONNECTING,
-    WIFI_CONNECTED_STATE
-};
-WifiState currentWifiState = WIFI_SCANNING;
-unsigned long wifiStateTimer = 0;
-const unsigned long WIFI_CONN_TIMEOUT = 10000; // 10 seconds timeout for WPA/DHCP handshake
-const unsigned long WIFI_SCAN_INTERVAL = 15000; // Scan every 15 seconds if disconnected
-
-// MQTT Settings
-const char* MQTT_BROKER = "broker.hivemq.com";
-const int   MQTT_PORT   = 1883;
-
-WiFiClient espClient;
-PubSubClient mqttClient(espClient);
-
-String deviceId    = "";
-String cmdTopic    = "";
-String statusTopic = "";
-
-unsigned long lastMqttRetry = 0;
-const unsigned long MQTT_RETRY_GAP = 4000;
+int  wifiNetIndex      = 0;
+bool wifiServersUp     = false;
+unsigned long wifiAttemptStart = 0;
+const unsigned long WIFI_ATTEMPT_TIMEOUT = 3000;
+const unsigned long WIFI_RETRY_GAP       = 1000;
+unsigned long wifiNextActionAt = 0;
 
 // ================================================
 //  STATE
@@ -103,24 +100,142 @@ bool stopNow       = false;
 int  cmdSteps      = -1;
 bool motorBusy     = false;
 bool oledDirty     = false;
-bool welcomeShown  = false;
+bool ipShown       = false;
 String globalState = "BOOT";
 int  animationFrame = 0;
 
+WebServer        server(HTTP_PORT);
+WebSocketsServer ws(WS_PORT);
 MFRC522          rfid(SS_PIN, RST_PIN);
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 void updateOLED();
 void handleSerialCommands();
-void publishStatus(const char* onlineState);
+void sendStatus(const char* state);
 void transitionState(String newState);
 void playTone(int frequency, int durationMs);
 void wifiTask();
-void mqttKeepAlive();
-void mqttCallback(char* topic, byte* payload, unsigned int length);
 void runVendSequence();
 void homing();
+void scrollIP();
 void cinematicBoot();
+
+// ================================================
+//  DASHBOARD HTML
+// ================================================
+const char INDEX_HTML[] PROGMEM = R"=====(
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AETHER VEND OS v13.0</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+               background: #0a0c10; color: #e1e7ed; margin: 0; padding: 20px; }
+        .container { max-width: 600px; margin: 0 auto; }
+        .card { background: #12161f; border-radius: 12px; padding: 24px;
+                box-shadow: 0 8px 24px rgba(0,0,0,0.5); margin-bottom: 20px;
+                border: 1px solid #1a2230; }
+        h1, h2 { margin-top: 0; color: #ffffff; letter-spacing: 0.5px; }
+        h1 { font-size: 22px; text-transform: uppercase; color: #00ea87;
+             border-bottom: 1px solid #1a2230; padding-bottom: 10px; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+        .label { font-size: 12px; color: #768390; text-transform: uppercase; font-weight: 600; }
+        .value { font-size: 18px; font-weight: bold; color: #ffffff; margin-top: 4px; }
+        .oled-emulation { background: #000; border: 3px solid #222c3c; border-radius: 6px;
+                          padding: 15px; text-align: center; font-family: "Courier New", monospace;
+                          height: 40px; display: flex; align-items: center; justify-content: center;
+                          margin: 15px 0; position: relative; }
+        .oled-text { font-size: 24px; font-weight: bold; color: #00ccff; letter-spacing: 2px; }
+        .oled-wifi-dot { position: absolute; top: 4px; right: 4px; width: 4px; height: 4px;
+                         background: #00ccff; border-radius: 50%; display: none; }
+        .btn { display: block; width: 100%; background: #00ea87; color: #0a0c10; border: none;
+               padding: 14px; font-size: 15px; font-weight: bold; border-radius: 8px;
+               cursor: pointer; text-transform: uppercase; transition: all 0.2s ease;
+               text-align: center; margin-top: 10px; box-sizing: border-box; }
+        .btn:hover { background: #00b769; transform: translateY(-1px); }
+        .btn-secondary { background: #1f293d; color: #fff; border: 1px solid #2d3d5a; }
+        .btn-secondary:hover { background: #28354f; }
+        .btn-stripe { background: #635bff; color: #fff; text-decoration: none; }
+        .btn-stripe:hover { background: #4f46e5; }
+    </style>
+</head>
+<body onload="init()">
+<div class="container">
+    <div class="card">
+        <h1>AETHER TECHNOLOGIES</h1>
+        <div class="label">Hardware Panel Output Emulation</div>
+        <div class="oled-emulation">
+            <div id="wifiDot" class="oled-wifi-dot"></div>
+            <div id="oledText" class="oled-text">BOOT</div>
+        </div>
+        <div class="grid">
+            <div>
+                <div class="label">Machine Status</div>
+                <div id="sysState" class="value" style="color:#00ea87;">STANDBY</div>
+            </div>
+            <div>
+                <div class="label">Linear Displacement</div>
+                <div id="linearPos" class="value">0 mm</div>
+            </div>
+        </div>
+    </div>
+    <div class="card">
+        <h2>OPERATIONAL COMMANDS</h2>
+        <button class="btn" onclick="sendCmd('vendswipe')">Dispense Product (Simulate Card)</button>
+        <button class="btn btn-secondary" onclick="sendCmd('home')">Calibrate Zero Axis (Home)</button>
+        <a class="btn btn-stripe" href="/pay" target="_blank">Pay & Dispense with Stripe</a>
+    </div>
+    <div class="card">
+        <h2>NETWORK DIAGNOSTICS</h2>
+        <div class="grid">
+            <div>
+                <div class="label">Connected SSID</div>
+                <div id="netSsid" class="value">Searching...</div>
+            </div>
+            <div>
+                <div class="label">Signal Strength</div>
+                <div id="netRssi" class="value">0 dBm</div>
+            </div>
+        </div>
+    </div>
+</div>
+<script>
+    var ws;
+    function init() {
+        ws = new WebSocket('ws://' + window.location.hostname + ':81/');
+        ws.onmessage = function(evt) {
+            var d = JSON.parse(evt.data);
+            document.getElementById("linearPos").innerText = d.pos_mm + " mm";
+            document.getElementById("netSsid").innerText   = d.wifi_ssid;
+            document.getElementById("netRssi").innerText   = d.wifi_rssi + " dBm";
+            var s = d.state.toUpperCase();
+            document.getElementById("sysState").innerText = s;
+            var ot = document.getElementById("oledText");
+            var dt = document.getElementById("wifiDot");
+            dt.style.display = "block";
+            if (s === "EXTENDING" || s === "RETRACTING" || s === "VENDING") {
+                ot.innerText = "VENDING..."; ot.style.color = "#00ea87";
+            } else if (s === "IDLE") {
+                ot.innerText = "READY"; ot.style.color = "#00ccff";
+            } else {
+                ot.innerText = s; ot.style.color = "#ffcc00";
+            }
+        };
+        ws.onclose = function() {
+            document.getElementById("oledText").innerText = "OFFLINE";
+            document.getElementById("oledText").style.color = "#ff3333";
+            document.getElementById("wifiDot").style.display = "none";
+            setTimeout(init, 2000);
+        };
+    }
+    function sendCmd(msg) {
+        if (ws && ws.readyState === WebSocket.OPEN) ws.send(msg);
+    }
+</script>
+</body>
+</html>
+)=====";
 
 // ================================================
 //  BUZZER
@@ -137,6 +252,7 @@ void playTone(int frequency, int durationMs) {
     }
 }
 
+// Quick non blocking-ish swept tone for whooshes
 void sweepTone(int fStart, int fEnd, int durationMs) {
     int steps = 20;
     int stepMs = durationMs / steps;
@@ -154,8 +270,6 @@ void transitionState(String newState) {
     globalState = newState;
     oledDirty   = true;
     updateOLED();
-    publishStatus("online");
-    
     if (globalState == "READY") {
         playTone(2800, 10);
         delay(20);
@@ -202,12 +316,8 @@ void moveTo(int target) {
     int currentDelay = SPEED_SLOW;
     int decelStart  = stepsToMove - SPEED_RAMP;
 
-    if (globalState != "VENDING") {
-        globalState = "VENDING";
-        oledDirty   = true;
-        updateOLED();
-        publishStatus("online");
-    }
+    if (globalState != "VENDING") transitionState("VENDING");
+    sendStatus(fwd ? "extending" : "retracting");
 
     for (int i = 0; i < stepsToMove; i++) {
         if (stopNow) break;
@@ -235,6 +345,7 @@ void moveTo(int target) {
     stopNow   = false;
 }
 
+// Raw move used inside cinematic boot (no state change, returns to start tracking)
 void rawMove(int steps, bool forward, int speedUs) {
     for (int i = 0; i < steps; i++) {
         if (forward) { motorPos++; } else { motorPos--; }
@@ -249,18 +360,18 @@ void rawMove(int steps, bool forward, int speedUs) {
 // ================================================
 void cinematicBoot() {
     const int NSTAR = 26;
-    float sx[NSTAR], sy[NSTAR], sa[NSTAR];
+    float sx[NSTAR], sy[NSTAR], sa[NSTAR];  // x, y, angle
     for (int i = 0; i < NSTAR; i++) {
-        sa[i] = (float)random(0, 628) / 100.0;
+        sa[i] = (float)random(0, 628) / 100.0; // 0..2pi
         sx[i] = 64; sy[i] = 16;
     }
     playTone(300, 20);
     for (int frame = 0; frame < 36; frame++) {
         display.clearDisplay();
-        float speed = 0.4 + frame * 0.12;
+        float speed = 0.4 + frame * 0.12;  // accelerating warp
         for (int i = 0; i < NSTAR; i++) {
             sx[i] += cos(sa[i]) * speed;
-            sy[i] += sin(sa[i]) * speed * 0.5;
+            sy[i] += sin(sa[i]) * speed * 0.5; // squash vertically for 128x32
             int tx = sx[i] - cos(sa[i]) * 3;
             int ty = sy[i] - sin(sa[i]) * 1.5;
             if (sx[i] >= 0 && sx[i] < SCREEN_WIDTH && sy[i] >= 0 && sy[i] < SCREEN_HEIGHT) {
@@ -279,9 +390,11 @@ void cinematicBoot() {
         display.clearDisplay();
         display.setTextSize(3);
         display.setTextColor(SSD1306_WHITE);
+
         int jitter = (frame % 3 == 0) ? random(-6, 7) : 0;
         display.setCursor(8 + jitter, 4);
         if (frame % 4 != 1) display.print("AETHER");
+
         if (frame % 2 == 0) {
             int by = random(0, SCREEN_HEIGHT - 4);
             display.fillRect(0, by, SCREEN_WIDTH, random(1, 4), SSD1306_INVERSE);
@@ -290,12 +403,12 @@ void cinematicBoot() {
             display.drawPixel(random(0, SCREEN_WIDTH), random(0, SCREEN_HEIGHT), SSD1306_WHITE);
         }
         display.display();
-        playTone(random(800, 2600), 2);
+        playTone(random(800, 2600), 2); // glitchy chirps
         delay(45);
     }
 
     sweepTone(600, 2400, 120);
-    rawMove(120, true, 600);
+    rawMove(120, true, 600);   // sharp motor jolt forward (the "power on" kick)
     for (int r = 0; r < 70; r += 6) {
         display.clearDisplay();
         display.setTextSize(3);
@@ -308,7 +421,7 @@ void cinematicBoot() {
         playTone(2000 - r * 12, 4);
         delay(28);
     }
-    rawMove(120, false, 600);
+    rawMove(120, false, 600);  // motor settles back
 
     display.clearDisplay();
     display.setTextSize(1);
@@ -319,7 +432,7 @@ void cinematicBoot() {
     delay(150);
 
     const int SEGMENTS = 24;
-    const int stepsPerSeg = 60;
+    const int stepsPerSeg = 60; // 24 * 60 = 1440 steps total sweep out
     for (int seg = 0; seg < SEGMENTS; seg++) {
         int fillW = (108 * (seg + 1)) / SEGMENTS;
         display.fillRect(10, 20, fillW, 6, SSD1306_WHITE);
@@ -329,6 +442,7 @@ void cinematicBoot() {
         display.print((seg + 1) * 100 / SEGMENTS);
         display.print("%");
         display.display();
+
         rawMove(stepsPerSeg, true, 700);
         playTone(1200 + seg * 50, 3);
     }
@@ -378,9 +492,7 @@ void cinematicBoot() {
 // ================================================
 void homing() {
     Serial.println("[HOMING] Start...");
-    globalState = "WAIT";
-    oledDirty = true;
-    updateOLED();
+    transitionState("WAIT");
     motorBusy = true;
 
     int homingSteps = TOTAL_STEPS + 400;
@@ -406,163 +518,161 @@ void homing() {
 }
 
 // ================================================
-//  MQTT COMMUNICATIONS
+//  WEBSOCKET BROADCAST
 // ================================================
-void publishStatus(const char* onlineState) {
-    if (!mqttClient.connected()) return;
+void sendStatus(const char* state) {
+    if (!wifiServersUp) return;
     int mm = map(motorPos, 0, TOTAL_STEPS, 0, MM_MAX);
-    char buf[256];
+    char buf[200];
     snprintf(buf, sizeof(buf),
-        "{\"device\":\"%s\",\"status\":\"%s\",\"state\":\"%s\",\"pos_mm\":%d,\"wifi_ssid\":\"%s\",\"wifi_rssi\":%d}",
-        deviceId.c_str(), onlineState, globalState.c_str(), mm, activeSSID.c_str(), WiFi.RSSI());
-    
-    // Publish as a retained message so the dashboard gets the latest state instantly on page load
-    mqttClient.publish(statusTopic.c_str(), buf, true);
+        "{\"pos_mm\":%d,\"state\":\"%s\",\"wifi_ssid\":\"%s\",\"wifi_rssi\":%d,\"wifi_ip\":\"%s\"}",
+        mm, state, activeSSID.c_str(), WiFi.RSSI(), WiFi.localIP().toString().c_str());
+    ws.broadcastTXT(buf);
 }
 
-void mqttCallback(char* topic, byte* payload, unsigned int length) {
-    String msg = "";
-    for (unsigned int i = 0; i < length; i++) {
-        msg += (char)payload[i];
-    }
-    msg.trim();
-    Serial.printf("[MQTT] Command received: %s\n", msg.c_str());
-
-    if (msg == "stop") {
-        stopNow = true;
-    } else if (msg == "home") {
-        cmdSteps = -2;
-        stopNow = false;
-    } else if (msg == "vendswipe") {
-        cmdSteps = 9999;
-        stopNow = false;
-    } else {
-        int mm = msg.toInt();
-        if (mm >= 0 && mm <= MM_MAX) {
-            cmdSteps = map(mm, 0, MM_MAX, 0, TOTAL_STEPS);
-            stopNow = false;
+void wsEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t len) {
+    switch (type) {
+        case WStype_CONNECTED: sendStatus("idle"); break;
+        case WStype_TEXT: {
+            String msg = String((char*)payload, len);
+            msg.trim();
+            if      (msg == "stop")      { stopNow = true; }
+            else if (msg == "home")      { cmdSteps = -2; stopNow = false; }
+            else if (msg == "vendswipe") { cmdSteps = 9999; stopNow = false; }
+            else {
+                int mm = msg.toInt();
+                if (mm >= 0 && mm <= MM_MAX) {
+                    cmdSteps = map(mm, 0, MM_MAX, 0, TOTAL_STEPS);
+                    stopNow  = false;
+                }
+            }
+            break;
         }
-    }
-}
-
-void mqttKeepAlive() {
-    if (WiFi.status() != WL_CONNECTED) return;
-    if (mqttClient.connected()) {
-        mqttClient.loop();
-        return;
-    }
-
-    unsigned long now = millis();
-    if (now - lastMqttRetry > MQTT_RETRY_GAP) {
-        lastMqttRetry = now;
-        Serial.printf("[MQTT] Connecting to broker %s... ", MQTT_BROKER);
-
-        // Register Last Will & Testament (LWT) as offline status
-        String lwtPayload = "{\"device\":\"" + deviceId + "\",\"status\":\"offline\"}";
-        if (mqttClient.connect(deviceId.c_str(), statusTopic.c_str(), 0, true, lwtPayload.c_str())) {
-            Serial.println("connected!");
-            mqttClient.subscribe(cmdTopic.c_str());
-            publishStatus("online");
-        } else {
-            Serial.printf("failed, rc=%d. Retrying...\n", mqttClient.state());
-        }
+        default: break;
     }
 }
 
 // ================================================
-//  NON-BLOCKING WIFI STATE MACHINE (WiFiMulti)
+//  HTTP
+// ================================================
+void handleRootFile() { server.send_P(200, "text/html", INDEX_HTML); }
+
+void handlePay() {
+    cmdSteps = 9999; // Trigger non-blocking dispense sequence in loop()
+    server.sendHeader("Location", "https://buy.stripe.com/test_bJeaEWgsxgTu6fOg6MfjG01");
+    server.send(302, "text/plain", "Redirecting to Stripe...");
+}
+
+void handleSuccess() {
+    cmdSteps = 9999; // Trigger non-blocking dispense sequence in loop()
+    String html = "<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width, initial-scale=1.0'><title>Payment Successful</title>";
+    html += "<style>body{font-family:sans-serif;background:#0a0c10;color:#fff;text-align:center;padding:50px 20px;}";
+    html += "h1{color:#00ea87;font-size:28px;}p{font-size:18px;color:#768390;}";
+    html += ".card{background:#12161f;border-radius:12px;padding:30px;max-width:400px;margin:0 auto;border:1px solid #1a2230;}</style></head>";
+    html += "<body><div class='card'><h1>Payment Successful!</h1><p>Your transaction was verified. Dispensing product now...</p></div></body></html>";
+    server.send(200, "text/html", html);
+}
+
+// ================================================
+//  PREMIUM IP REVEAL — TYPEWRITER + RADAR
+// ================================================
+void scrollIP() {
+    if (WiFi.status() != WL_CONNECTED) return;
+    String ip   = WiFi.localIP().toString();
+    String head = "NETWORK ONLINE";
+
+    for (int b = 0; b < 3; b++) {
+        display.clearDisplay();
+        if (b % 2 == 0) {
+            display.setTextSize(1);
+            display.setTextColor(SSD1306_WHITE);
+            display.setCursor(18, 12);
+            display.print(head);
+        }
+        display.display();
+        playTone(2000 + b * 300, 25);
+        delay(140);
+    }
+    delay(150);
+
+    String typed = "";
+    for (unsigned int c = 0; c < ip.length(); c++) {
+        typed += ip[c];
+        display.clearDisplay();
+
+        float ang = (c * 0.6);
+        int rx = 14, ry = 16;
+        display.drawCircle(rx, ry, 12, SSD1306_WHITE);
+        display.drawLine(rx, ry, rx + cos(ang) * 12, ry + sin(ang) * 12, SSD1306_WHITE);
+
+        display.setTextSize(1);
+        display.setTextColor(SSD1306_WHITE);
+        display.setCursor(34, 2);
+        display.print("IP ADDRESS");
+
+        display.setCursor(34, 16);
+        display.print(typed);
+        if (c % 2 == 0) display.print("_");
+
+        display.display();
+        playTone(c % 2 ? 1500 : 1700, 6);
+        delay(180);
+    }
+
+    display.clearDisplay();
+    display.drawRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, SSD1306_WHITE);
+    display.setTextSize(1);
+    display.setTextColor(SSD1306_WHITE);
+    display.setCursor(6, 4);
+    display.print("IP  ");
+    display.print(ip);
+    display.setCursor(6, 18);
+    display.print("NET ");
+    display.print(activeSSID);
+    display.display();
+    delay(4000);
+
+    for (int pass = 0; pass < 60; pass++) {
+        for (int n = 0; n < 40; n++) {
+            display.drawPixel(random(0, SCREEN_WIDTH), random(0, SCREEN_HEIGHT), SSD1306_BLACK);
+        }
+        display.display();
+        delay(12);
+    }
+
+    ipShown = true;
+}
+
+// ================================================
+//  NON-BLOCKING WIFI STATE MACHINE
 // ================================================
 void wifiTask() {
     if (WiFi.status() == WL_CONNECTED) {
-        if (activeSSID == "None") {
-            activeSSID = WiFi.SSID();
+        if (!wifiServersUp) {
+            activeSSID = WIFI_SSIDS[wifiNetIndex == 0 ? NUM_NETWORKS - 1 : wifiNetIndex - 1];
             Serial.printf("[WIFI] Connected: %s | IP %s | RSSI %d\n",
                 activeSSID.c_str(), WiFi.localIP().toString().c_str(), WiFi.RSSI());
-            publishStatus("online");
-            currentWifiState = WIFI_CONNECTED_STATE;
+            server.on("/", handleRootFile);
+            server.on("/pay", handlePay);
+            server.on("/success", handleSuccess);
+            server.begin();
+            ws.begin();
+            ws.onEvent(wsEvent);
+            wifiServersUp = true;
         }
-        return;
-    }
-
-    // Disconnected state
-    if (currentWifiState == WIFI_CONNECTED_STATE) {
-        Serial.println("[WIFI] Connection lost. Starting scan...");
-        activeSSID = "None";
-        WiFi.disconnect();
-        currentWifiState = WIFI_SCANNING;
-        WiFi.scanNetworks(true); // Trigger non-blocking scan
-        wifiStateTimer = millis();
         return;
     }
 
     unsigned long now = millis();
+    if (now < wifiNextActionAt) return;
 
-    switch (currentWifiState) {
-        case WIFI_SCANNING: {
-            int n = WiFi.scanComplete();
-            if (n >= 0) { // Scan completed
-                Serial.printf("[WIFI] Scan finished: %d networks found.\n", n);
-                String bestSSID = "";
-                String bestPass = "";
-                
-                // Search in order of priority (VOO first, then Taqi)
-                bool foundVOO = false;
-                bool foundTaqi = false;
-                for (int i = 0; i < n; ++i) {
-                    String ssid = WiFi.SSID(i);
-                    if (ssid == "VOO-2413CT6") foundVOO = true;
-                    if (ssid == "Taqi IP15") foundTaqi = true;
-                }
-                WiFi.scanDelete();
-
-                if (foundVOO) {
-                    bestSSID = "VOO-2413CT6";
-                    bestPass = "12345679";
-                } else if (foundTaqi) {
-                    bestSSID = "Taqi IP15";
-                    bestPass = "12345679";
-                }
-
-                if (bestSSID != "") {
-                    Serial.printf("[WIFI] Found configured network in air: %s. Initiating handshake...\n", bestSSID.c_str());
-                    WiFi.begin(bestSSID.c_str(), bestPass.c_str());
-                    currentWifiState = WIFI_CONNECTING;
-                    wifiStateTimer = now;
-                } else {
-                    Serial.println("[WIFI] Configured networks not found in scan. Waiting to re-scan.");
-                    currentWifiState = WIFI_IDLE;
-                    wifiStateTimer = now;
-                }
-            } else if (n == -2) {
-                WiFi.scanNetworks(true);
-                wifiStateTimer = now;
-            }
-            break;
-        }
-
-        case WIFI_CONNECTING: {
-            if (now - wifiStateTimer > WIFI_CONN_TIMEOUT) {
-                Serial.println("[WIFI] Connection timed out. Initiating re-scan...");
-                WiFi.disconnect();
-                currentWifiState = WIFI_SCANNING;
-                WiFi.scanNetworks(true);
-                wifiStateTimer = now;
-            }
-            break;
-        }
-
-        case WIFI_IDLE: {
-            if (now - wifiStateTimer > WIFI_SCAN_INTERVAL) {
-                Serial.println("[WIFI] Retrying scan...");
-                currentWifiState = WIFI_SCANNING;
-                WiFi.scanNetworks(true);
-                wifiStateTimer = now;
-            }
-            break;
-        }
-        
-        default:
-            break;
+    if (wifiAttemptStart == 0 || (now - wifiAttemptStart > WIFI_ATTEMPT_TIMEOUT)) {
+        WiFi.disconnect();
+        Serial.printf("[WIFI] Trying: %s\n", WIFI_SSIDS[wifiNetIndex]);
+        WiFi.begin(WIFI_SSIDS[wifiNetIndex], WIFI_PASSES[wifiNetIndex]);
+        wifiAttemptStart = now;
+        wifiNetIndex = (wifiNetIndex + 1) % NUM_NETWORKS;
+        if (wifiNetIndex == 0) wifiNextActionAt = now + WIFI_RETRY_GAP;
     }
 }
 
@@ -576,9 +686,8 @@ void updateOLED() {
     display.clearDisplay();
     display.setTextColor(SSD1306_WHITE);
 
-    bool linked = (WiFi.status() == WL_CONNECTED && mqttClient.connected());
+    bool linked = (WiFi.status() == WL_CONNECTED);
 
-    // Wi-Fi/Broker status block in top-right corner
     if (linked) {
         display.fillRect(SCREEN_WIDTH - 4, 0, 3, 3, SSD1306_WHITE);
     } else {
@@ -588,25 +697,17 @@ void updateOLED() {
     }
 
     if (globalState == "READY") {
-        // Breathing logo: text size pulses subtly via position shimmer
         display.setTextSize(2);
         int shimmer = (int)(1.5 * sin(animationFrame * 0.18));
         display.setCursor(6, 2 + shimmer);
         display.print("AETHER");
 
-        // Display paired unique ID on the right
         display.setTextSize(1);
-        display.setCursor(86, 2);
-        display.print("ID:");
-        display.setCursor(86, 12);
-        // Show device ID hex string suffix
-        if (deviceId.length() > 7) {
-            display.print(deviceId.substring(7));
-        } else {
-            display.print("----");
+        if ((animationFrame / 8) % 2 == 0) {
+            display.setCursor(90, 4);
+            display.print("TAP");
         }
 
-        // Dual flowing energy ribbons
         for (int x = 0; x < SCREEN_WIDTH; x++) {
             int y1 = 26 + (int)(3.5 * sin((x + animationFrame * 6) * 0.13));
             int y2 = 28 + (int)(2.5 * sin((x - animationFrame * 4) * 0.10 + 1.5));
@@ -630,14 +731,12 @@ void updateOLED() {
     else if (globalState == "VENDING") {
         float t = animationFrame * 0.25;
         
-        // Background particles
         for (int p = 0; p < 12; p++) {
             int px = (p * 12 + (animationFrame * 2)) % SCREEN_WIDTH;
             int py = 16 + (int)(7.0 * sin((px + animationFrame * 4) * 0.06));
             display.drawPixel(px, py, SSD1306_WHITE);
         }
 
-        // Foreground rotating 3D Double Helix
         for (int x = 8; x < SCREEN_WIDTH - 8; x += 5) {
             float envelope = sin((x - 8) * 3.14159 / (SCREEN_WIDTH - 16));
             float amp = 14.0 * envelope;
@@ -656,7 +755,6 @@ void updateOLED() {
         display.print("THANK");
         display.setCursor(34, 18);
         display.print("YOU");
-        
         for (int s = 0; s < 6; s++) {
             float a = animationFrame * 0.3 + s * 1.05;
             int r = (animationFrame * 2) % 20;
@@ -680,6 +778,7 @@ void runVendSequence() {
     transitionState("COMPLETE");
     for (int f = 0; f < 30; f++) { animationFrame++; oledDirty = true; updateOLED(); delay(45); }
     transitionState("READY");
+    sendStatus("idle");
 }
 
 // ================================================
@@ -688,7 +787,7 @@ void runVendSequence() {
 void setup() {
     Serial.begin(115200);
     delay(200);
-    Serial.println("\n=== AETHER VEND OS v13.0 | INTERNET GATEWAY ===");
+    Serial.println("\n=== AETHER VEND OS v13.0 | CINEMATIC ===");
 
     Wire.begin(OLED_SDA, OLED_SCL);
     Wire.setClock(800000);
@@ -696,19 +795,6 @@ void setup() {
         Serial.println("[ERROR] OLED failed.");
 
     randomSeed(esp_random());
-
-    // Generate Device ID from MAC Address
-    uint8_t mac[6];
-    WiFi.macAddress(mac);
-    char idBuf[32];
-    snprintf(idBuf, sizeof(idBuf), "AETHER-%02X%02X", mac[4], mac[5]);
-    deviceId = String(idBuf);
-    cmdTopic = "aether/vending/" + deviceId + "/cmd";
-    statusTopic = "aether/vending/" + deviceId + "/status";
-
-    Serial.printf("[SYSTEM] Device ID: %s\n", deviceId.c_str());
-    Serial.printf("[SYSTEM] Command Topic: %s\n", cmdTopic.c_str());
-    Serial.printf("[SYSTEM] Status Topic: %s\n", statusTopic.c_str());
 
     pinMode(AIN1, OUTPUT); pinMode(AIN2, OUTPUT);
     pinMode(BIN1, OUTPUT); pinMode(BIN2, OUTPUT);
@@ -725,15 +811,9 @@ void setup() {
 
     WiFi.mode(WIFI_STA);
     WiFi.setSleep(false);
-    WiFi.disconnect();
-    
-    Serial.println("[WIFI] Launching initial background network scan...");
-    WiFi.scanNetworks(true); // Start non-blocking scan on boot
-    currentWifiState = WIFI_SCANNING;
-    wifiStateTimer = millis();
-
-    mqttClient.setServer(MQTT_BROKER, MQTT_PORT);
-    mqttClient.setCallback(mqttCallback);
+    WiFi.begin(WIFI_SSIDS[0], WIFI_PASSES[0]);
+    wifiAttemptStart = millis();
+    wifiNetIndex     = 1;
 
     transitionState("READY");
     Serial.printf("[BOOT] Ready. Cruise: %dus\n", SPEED_CRUISE);
@@ -744,7 +824,16 @@ void setup() {
 // ================================================
 void loop() {
     wifiTask();
-    mqttKeepAlive();
+
+    if (wifiServersUp && !ipShown) {
+        scrollIP();
+        oledDirty = true;
+    }
+
+    if (wifiServersUp) {
+        server.handleClient();
+        ws.loop();
+    }
 
     handleSerialCommands();
 
@@ -772,6 +861,7 @@ void loop() {
             transitionState("VENDING");
             moveTo(target);
             transitionState("READY");
+            sendStatus("idle");
         }
     }
 
@@ -795,11 +885,12 @@ void handleSerialCommands() {
     if      (cmd == "test")   { stopNow = false; runVendSequence(); }
     else if (cmd == "home")   { homing(); }
     else if (cmd == "stop")   { stopNow = true; }
+    else if (cmd == "ip")     { ipShown = false; }
     else if (cmd == "boot")   { cinematicBoot(); transitionState("READY"); }
     else if (cmd == "status") {
-        Serial.printf("[STATUS] Pos: %d steps (%dmm) | State: %s | WiFi: %s | Broker: %s\n",
+        Serial.printf("[STATUS] Pos: %d steps (%dmm) | State: %s | WiFi: %s\n",
             motorPos, map(motorPos, 0, TOTAL_STEPS, 0, MM_MAX),
-            globalState.c_str(), activeSSID.c_str(), mqttClient.connected() ? "Connected" : "Disconnected");
+            globalState.c_str(), activeSSID.c_str());
     }
     else if (cmd.startsWith("go:")) {
         int mm = constrain(cmd.substring(3).toInt(), 0, MM_MAX);
@@ -809,3 +900,4 @@ void handleSerialCommands() {
         transitionState("READY");
     }
 }
+```

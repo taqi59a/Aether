@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="AETHER VEND OS - Premium Internet IoT dashboard to monitor and control your sanitary vending machine in real-time from anywhere in the world.">
+    <title>AETHER VEND OS — INTERNET DASHBOARD</title>
+    <!-- Premium Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <!-- MQTT Websocket Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.min.js" type="text/javascript"></script>
+</head>
+<body>
+    <div class="background-glow"></div>
+    <div class="dashboard-wrapper">
+        <!-- HEADER -->
+        <header class="main-header">
+            <div class="header-logo">
+                <span class="logo-accent">AETHER</span> VEND OS
+            </div>
+            <div class="header-subtitle">
+                <span>INTERNET GATEWAY v13.0</span>
+            </div>
+        </header>
+
+        <main class="grid-container">
+            <!-- CONNECTION & PAIRING -->
+            <section class="card glassmorphism" id="section-pairing">
+                <h2>1. PAIR DEVICE</h2>
+                <p class="description">Enter the Device ID displayed on the physical OLED screen to establish an encrypted bridge.</p>
+                <div class="pair-control-group">
+                    <input type="text" id="deviceIdInput" placeholder="e.g. AETHER-B4CE" maxlength="11" aria-label="Device ID Input">
+                    <button class="btn btn-primary" id="btnConnect" onclick="connectMQTT()">Link Gateway</button>
+                </div>
+                <div class="network-badge-container">
+                    <div class="status-badge" id="brokerStatus">
+                        <span class="dot pulse-red"></span>
+                        <span class="status-text">Broker Offline</span>
+                    </div>
+                    <div class="status-badge" id="deviceStatus" style="display: none;">
+                        <span class="dot"></span>
+                        <span class="status-text">Machine Status</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- MACHINE SIMULATOR (OLED SCREEN EMULATION) -->
+            <section class="card glassmorphism" id="section-simulator">
+                <h2>2. HARDWARE EMULATOR</h2>
+                <div class="oled-viewport">
+                    <div class="oled-wifi-dot" id="oledWifiIndicator"></div>
+                    <!-- OLED screen content simulator -->
+                    <div class="oled-screen-content" id="oledScreenContent">
+                        <div class="screen-boot" id="screenBoot">AETHER</div>
+                        <div class="screen-ready" id="screenReady" style="display:none;">
+                            <div class="breathing-logo">AETHER</div>
+                            <div class="ready-id-badge">ID:<span id="oledDeviceId">----</span></div>
+                            <div class="energy-wave" id="energyWave"></div>
+                        </div>
+                        <div class="screen-wait" id="screenWait" style="display:none;">
+                            <div class="wait-flashing">WAIT</div>
+                        </div>
+                        <div class="screen-vending" id="screenVending" style="display:none;">
+                            <canvas id="helixCanvas" width="128" height="32"></canvas>
+                        </div>
+                        <div class="screen-complete" id="screenComplete" style="display:none;">
+                            <div class="thank-you">THANK YOU</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="label-info">Physical OLED Display Replication (128x32 px)</div>
+            </section>
+
+            <!-- MONITORING & DIAGNOSTICS -->
+            <section class="card glassmorphism" id="section-diagnostics">
+                <h2>3. DIAGNOSTICS</h2>
+                <div class="metrics-grid">
+                    <div class="metric-box">
+                        <span class="metric-label">Linear Displacement</span>
+                        <span class="metric-value" id="dispVal">0 mm</span>
+                    </div>
+                    <div class="metric-box">
+                        <span class="metric-label">Signal Quality</span>
+                        <div class="rssi-bar-wrapper">
+                            <span class="metric-value" id="rssiVal">-- dBm</span>
+                            <div class="rssi-strength-indicator" id="rssiBars">
+                                <span class="bar"></span>
+                                <span class="bar"></span>
+                                <span class="bar"></span>
+                                <span class="bar"></span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="metric-box">
+                        <span class="metric-label">SSID Network</span>
+                        <span class="metric-value" id="ssidVal">Disconnected</span>
+                    </div>
+                    <div class="metric-box">
+                        <span class="metric-label">Internal Status</span>
+                        <span class="metric-value status-accent" id="stateVal">STANDBY</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- CONTROL PANEL -->
+            <section class="card glassmorphism" id="section-controls">
+                <h2>4. OPERATIONAL ACTIONS</h2>
+                <button class="btn btn-dispense" id="btnDispense" onclick="sendVendSwipe()" disabled>
+                    <span class="btn-icon">⚡</span>
+                    DISPENSE PRODUCT
+                </button>
+                <div class="horizontal-controls">
+                    <button class="btn btn-secondary" id="btnHome" onclick="sendHome()" disabled>
+                        <span class="btn-icon">⚙️</span> CALIBRATE AXIS
+                    </button>
+                    <button class="btn btn-secondary btn-stop" id="btnStop" onclick="sendStop()" disabled>
+                        <span class="btn-icon">🛑</span> STOP NOW
+                    </button>
+                </div>
+                <div class="manual-override">
+                    <div class="slider-label-group">
+                        <span class="metric-label">Manual Displacement Override</span>
+                        <span class="slider-current-val" id="overrideVal">0 mm</span>
+                    </div>
+                    <input type="range" id="displacementSlider" min="0" max="60" value="0" class="custom-range" oninput="updateSliderLabel(this.value)" onchange="sendLinearMove(this.value)" disabled aria-label="Displacement Slider">
+                </div>
+            </section>
+        </main>
+
+        <!-- FOOTER -->
+        <footer class="main-footer">
+            <p>&copy; 2026 AETHER Technologies. Secured via Encrypted MQTT Tunneling.</p>
+        </footer>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
