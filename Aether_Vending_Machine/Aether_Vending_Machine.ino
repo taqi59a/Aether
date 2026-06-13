@@ -93,7 +93,7 @@ String cmdTopic    = "";
 String statusTopic = "";
 
 unsigned long lastMqttRetry = 0;
-const unsigned long MQTT_RETRY_GAP = 4000;
+const unsigned long MQTT_RETRY_GAP = 10000; // Retry connection every 10 seconds if offline
 
 // ================================================
 //  STATE
@@ -127,14 +127,8 @@ void cinematicBoot();
 // ================================================
 void playTone(int frequency, int durationMs) {
     if (frequency <= 0) return;
-    int halfPeriod = 1000000 / (frequency * 2);
-    unsigned long start = millis();
-    while (millis() - start < (unsigned long)durationMs) {
-        digitalWrite(BUZZER_PIN, HIGH);
-        delayMicroseconds(halfPeriod);
-        digitalWrite(BUZZER_PIN, LOW);
-        delayMicroseconds(halfPeriod);
-    }
+    tone(BUZZER_PIN, frequency, durationMs);
+    delay(durationMs);
 }
 
 void sweepTone(int fStart, int fEnd, int durationMs) {
@@ -534,8 +528,9 @@ void wifiTask() {
                     wifiStateTimer = now;
                 }
             } else if (n == -2) {
-                WiFi.scanNetworks(true);
-                wifiStateTimer = now;
+                Serial.println("[WIFI] Scan failed (-2). Backing off for 5 seconds before retry...");
+                currentWifiState = WIFI_IDLE;
+                wifiStateTimer = now - (WIFI_SCAN_INTERVAL - 5000);
             }
             break;
         }
@@ -727,6 +722,8 @@ void setup() {
     WiFi.setSleep(false);
     WiFi.disconnect();
     
+    espClient.setTimeout(1); // Set socket timeout to 1 second to prevent blocking hangs during MQTT connection
+    
     Serial.println("[WIFI] Launching initial background network scan...");
     WiFi.scanNetworks(true); // Start non-blocking scan on boot
     currentWifiState = WIFI_SCANNING;
@@ -775,12 +772,20 @@ void loop() {
         }
     }
 
-    if (!motorBusy && rfid.PICC_IsNewCardPresent() && rfid.PICC_ReadCardSerial()) {
-        Serial.println("[RFID] Card detected.");
-        playTone(4000, 10); playTone(4500, 10);
-        runVendSequence();
-        rfid.PICC_HaltA();
-        rfid.PCD_StopCrypto1();
+    static unsigned long lastRfidScan = 0;
+    if (!motorBusy && (millis() - lastRfidScan > 150)) {
+        lastRfidScan = millis();
+        if (rfid.PICC_IsNewCardPresent() && rfid.PICC_ReadCardSerial()) {
+            Serial.println("[RFID] Card detected.");
+            playTone(4000, 10); playTone(4500, 10);
+            runVendSequence();
+            rfid.PICC_HaltA();
+            rfid.PCD_StopCrypto1();
+        }
+    }
+
+    if (!motorBusy) {
+        delay(2);
     }
 }
 
@@ -788,24 +793,35 @@ void loop() {
 //  SERIAL COMMANDS
 // ================================================
 void handleSerialCommands() {
-    if (!Serial.available()) return;
-    String cmd = Serial.readStringUntil('\n');
-    cmd.trim(); cmd.toLowerCase();
-
-    if      (cmd == "test")   { stopNow = false; runVendSequence(); }
-    else if (cmd == "home")   { homing(); }
-    else if (cmd == "stop")   { stopNow = true; }
-    else if (cmd == "boot")   { cinematicBoot(); transitionState("READY"); }
-    else if (cmd == "status") {
-        Serial.printf("[STATUS] Pos: %d steps (%dmm) | State: %s | WiFi: %s | Broker: %s\n",
-            motorPos, map(motorPos, 0, TOTAL_STEPS, 0, MM_MAX),
-            globalState.c_str(), activeSSID.c_str(), mqttClient.connected() ? "Connected" : "Disconnected");
-    }
-    else if (cmd.startsWith("go:")) {
-        int mm = constrain(cmd.substring(3).toInt(), 0, MM_MAX);
-        stopNow = false;
-        transitionState("VENDING");
-        moveTo(map(mm, 0, MM_MAX, 0, TOTAL_STEPS));
-        transitionState("READY");
+    static String rxBuffer = "";
+    while (Serial.available()) {
+        char c = Serial.read();
+        if (c == '\n' || c == '\r') {
+            rxBuffer.trim();
+            if (rxBuffer.length() > 0) {
+                rxBuffer.toLowerCase();
+                if      (rxBuffer == "test")   { stopNow = false; runVendSequence(); }
+                else if (rxBuffer == "home")   { homing(); }
+                else if (rxBuffer == "stop")   { stopNow = true; }
+                else if (rxBuffer == "boot")   { cinematicBoot(); transitionState("READY"); }
+                else if (rxBuffer == "status") {
+                    Serial.printf("[STATUS] Pos: %d steps (%dmm) | State: %s | WiFi: %s | Broker: %s\n",
+                        motorPos, map(motorPos, 0, TOTAL_STEPS, 0, MM_MAX),
+                        globalState.c_str(), activeSSID.c_str(), mqttClient.connected() ? "Connected" : "Disconnected");
+                }
+                else if (rxBuffer.startsWith("go:")) {
+                    int mm = constrain(rxBuffer.substring(3).toInt(), 0, MM_MAX);
+                    stopNow = false;
+                    transitionState("VENDING");
+                    moveTo(map(mm, 0, MM_MAX, 0, TOTAL_STEPS));
+                    transitionState("READY");
+                }
+            }
+            rxBuffer = "";
+        } else {
+            if (rxBuffer.length() < 64) {
+                rxBuffer += c;
+            }
+        }
     }
 }
