@@ -78,7 +78,7 @@ enum WifiState {
 };
 WifiState currentWifiState = WIFI_SCANNING;
 unsigned long wifiStateTimer = 0;
-const unsigned long WIFI_CONN_TIMEOUT = 10000; // 10 seconds timeout for WPA/DHCP handshake
+const unsigned long WIFI_CONN_TIMEOUT = 20000; // 20 seconds timeout for WPA/DHCP handshake
 const unsigned long WIFI_SCAN_INTERVAL = 15000; // Scan every 15 seconds if disconnected
 
 // MQTT Settings
