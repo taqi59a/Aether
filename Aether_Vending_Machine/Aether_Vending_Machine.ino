@@ -705,24 +705,18 @@ void updateOLED() {
 
     bool linked = (WiFi.status() == WL_CONNECTED);
 
-    if (!linked) {
-        display.setTextSize(1);
-        display.setCursor(2, 2);
-        display.print("CONNECTING");
-        int dots = (animationFrame / 4) % 4;
-        for (int d = 0; d < dots; d++) display.print(".");
-        const char spin[4] = {'|', '/', '-', '\\'};
-        display.setTextSize(2);
-        display.setCursor(56, 16);
-        display.print(spin[(animationFrame / 3) % 4]);
-        display.setTextSize(1);
-        display.setCursor(90, 24);
-        display.print(globalState.substring(0, 6));
-        display.display();
-        return;
+    // Subtle WiFi status indicator in the top-right corner
+    if (linked) {
+        // Solid 3x3 block when connected
+        display.fillRect(SCREEN_WIDTH - 4, 0, 3, 3, SSD1306_WHITE);
+    } else {
+        // Blinking 3x3 block when connecting
+        if ((animationFrame / 4) % 2 == 0) {
+            display.fillRect(SCREEN_WIDTH - 4, 0, 3, 3, SSD1306_WHITE);
+        }
     }
 
-    display.fillRect(SCREEN_WIDTH - 2, 0, 2, 2, SSD1306_WHITE);
+
 
     if (globalState == "READY") {
         // Breathing logo: text size pulses subtly via position shimmer
