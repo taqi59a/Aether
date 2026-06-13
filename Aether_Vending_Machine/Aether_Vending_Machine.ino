@@ -151,6 +151,8 @@ const char INDEX_HTML[] PROGMEM = R"=====(
         .btn:hover { background: #00b769; transform: translateY(-1px); }
         .btn-secondary { background: #1f293d; color: #fff; border: 1px solid #2d3d5a; }
         .btn-secondary:hover { background: #28354f; }
+        .btn-stripe { background: #635bff; color: #fff; text-decoration: none; }
+        .btn-stripe:hover { background: #4f46e5; }
     </style>
 </head>
 <body onload="init()">
@@ -177,6 +179,7 @@ const char INDEX_HTML[] PROGMEM = R"=====(
         <h2>OPERATIONAL COMMANDS</h2>
         <button class="btn" onclick="sendCmd('vendswipe')">Dispense Product (Simulate Card)</button>
         <button class="btn btn-secondary" onclick="sendCmd('home')">Calibrate Zero Axis (Home)</button>
+        <a class="btn btn-stripe" href="/pay" target="_blank">Pay & Dispense with Stripe</a>
     </div>
     <div class="card">
         <h2>NETWORK DIAGNOSTICS</h2>
@@ -585,6 +588,22 @@ void wsEvent(uint8_t num, WStype_t type, uint8_t* payload, size_t len) {
 // ================================================
 void handleRootFile() { server.send_P(200, "text/html", INDEX_HTML); }
 
+void handlePay() {
+    cmdSteps = 9999; // Trigger non-blocking dispense sequence in loop()
+    server.sendHeader("Location", "https://buy.stripe.com/test_bJeaEWgsxgTu6fOg6MfjG01");
+    server.send(302, "text/plain", "Redirecting to Stripe...");
+}
+
+void handleSuccess() {
+    cmdSteps = 9999; // Trigger non-blocking dispense sequence in loop()
+    String html = "<!DOCTYPE html><html><head><meta name='viewport' content='width=device-width, initial-scale=1.0'><title>Payment Successful</title>";
+    html += "<style>body{font-family:sans-serif;background:#0a0c10;color:#fff;text-align:center;padding:50px 20px;}";
+    html += "h1{color:#00ea87;font-size:28px;}p{font-size:18px;color:#768390;}";
+    html += ".card{background:#12161f;border-radius:12px;padding:30px;max-width:400px;margin:0 auto;border:1px solid #1a2230;}</style></head>";
+    html += "<body><div class='card'><h1>Payment Successful!</h1><p>Your transaction was verified. Dispensing product now...</p></div></body></html>";
+    server.send(200, "text/html", html);
+}
+
 // ================================================
 //  PREMIUM IP REVEAL — TYPEWRITER + RADAR
 //  Types out the IP char by char with a blinking cursor
@@ -675,6 +694,8 @@ void wifiTask() {
             Serial.printf("[WIFI] Connected: %s | IP %s | RSSI %d\n",
                 activeSSID.c_str(), WiFi.localIP().toString().c_str(), WiFi.RSSI());
             server.on("/", handleRootFile);
+            server.on("/pay", handlePay);
+            server.on("/success", handleSuccess);
             server.begin();
             ws.begin();
             ws.onEvent(wsEvent);
