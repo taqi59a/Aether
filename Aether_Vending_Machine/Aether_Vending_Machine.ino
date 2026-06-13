@@ -755,25 +755,50 @@ void updateOLED() {
         display.print("WAIT");
     }
     else if (globalState == "VENDING") {
-        display.setTextSize(1);
-        display.setCursor(40, 2);
-        display.print("DISPENSING");
-        // Rotating gear-like spinner
-        int cx = 64, cy = 20, R = 8;
-        for (int k = 0; k < 8; k++) {
-            float a = animationFrame * 0.25 + k * 0.785;
-            int x1 = cx + cos(a) * (R - 3);
-            int y1 = cy + sin(a) * (R - 3);
-            int x2 = cx + cos(a) * R;
-            int y2 = cy + sin(a) * R;
-            display.drawLine(x1, y1, x2, y2, SSD1306_WHITE);
+        // High-tech radar scanner on the left (center at x=16, y=16)
+        int cx = 16, cy = 16, rad = 12;
+        display.drawCircle(cx, cy, rad, SSD1306_WHITE);
+        display.drawCircle(cx, cy, 1, SSD1306_WHITE);
+        
+        // Rotating radar line
+        float angle = animationFrame * 0.20;
+        int rx = cx + (int)(rad * cos(angle));
+        int ry = cy + (int)(rad * sin(angle));
+        display.drawLine(cx, cy, rx, ry, SSD1306_WHITE);
+
+        // Sonar expanding wave
+        int sonarR = (animationFrame / 2) % (rad + 1);
+        if (sonarR > 1) {
+            display.drawCircle(cx, cy, sonarR, SSD1306_WHITE);
         }
-        display.drawCircle(cx, cy, R - 4, SSD1306_WHITE);
-        // progress dots streaming
-        int off = (animationFrame * 4) % 24;
-        for (int dx = 80; dx < SCREEN_WIDTH - 4; dx += 8) {
-            int fx = dx + off;
-            if (fx < SCREEN_WIDTH - 2) display.fillCircle(fx, 20, 1, SSD1306_WHITE);
+
+        // Dispensing progress display (0 to 100%)
+        int pct = (motorPos * 100) / TOTAL_STEPS;
+        display.setTextSize(1);
+        display.setCursor(36, 4);
+        display.print("DISPENSING ");
+        display.print(pct);
+        display.print("%");
+
+        // Progress bar track
+        display.drawRoundRect(36, 18, 86, 8, 2, SSD1306_WHITE);
+        
+        // Dynamic progress bar fill based on real motorPos
+        int progressW = (motorPos * 82) / TOTAL_STEPS;
+        if (progressW > 0) {
+            display.fillRoundRect(38, 20, progressW, 4, 1, SSD1306_WHITE);
+            
+            // Dynamic sparks at the leading edge of the progress bar
+            if (progressW < 82) {
+                int sparkX = 38 + progressW;
+                if ((animationFrame % 2) == 0) {
+                    display.drawPixel(sparkX + 1, 19, SSD1306_WHITE);
+                    display.drawPixel(sparkX + 2, 21, SSD1306_WHITE);
+                } else {
+                    display.drawPixel(sparkX + 1, 21, SSD1306_WHITE);
+                    display.drawPixel(sparkX + 3, 19, SSD1306_WHITE);
+                }
+            }
         }
     }
     else if (globalState == "COMPLETE") {
