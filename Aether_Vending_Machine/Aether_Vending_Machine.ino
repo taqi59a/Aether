@@ -755,50 +755,31 @@ void updateOLED() {
         display.print("WAIT");
     }
     else if (globalState == "VENDING") {
-        // High-tech radar scanner on the left (center at x=16, y=16)
-        int cx = 16, cy = 16, rad = 12;
-        display.drawCircle(cx, cy, rad, SSD1306_WHITE);
-        display.drawCircle(cx, cy, 1, SSD1306_WHITE);
+        float t = animationFrame * 0.25;
         
-        // Rotating radar line
-        float angle = animationFrame * 0.20;
-        int rx = cx + (int)(rad * cos(angle));
-        int ry = cy + (int)(rad * sin(angle));
-        display.drawLine(cx, cy, rx, ry, SSD1306_WHITE);
-
-        // Sonar expanding wave
-        int sonarR = (animationFrame / 2) % (rad + 1);
-        if (sonarR > 1) {
-            display.drawCircle(cx, cy, sonarR, SSD1306_WHITE);
+        // Background: Streaming energy flow particles
+        for (int p = 0; p < 12; p++) {
+            int px = (p * 12 + (animationFrame * 2)) % SCREEN_WIDTH;
+            int py = 16 + (int)(7.0 * sin((px + animationFrame * 4) * 0.06));
+            display.drawPixel(px, py, SSD1306_WHITE);
         }
 
-        // Dispensing progress display (0 to 100%)
-        int pct = (motorPos * 100) / TOTAL_STEPS;
-        display.setTextSize(1);
-        display.setCursor(36, 4);
-        display.print("DISPENSING ");
-        display.print(pct);
-        display.print("%");
-
-        // Progress bar track
-        display.drawRoundRect(36, 18, 86, 8, 2, SSD1306_WHITE);
-        
-        // Dynamic progress bar fill based on real motorPos
-        int progressW = (motorPos * 82) / TOTAL_STEPS;
-        if (progressW > 0) {
-            display.fillRoundRect(38, 20, progressW, 4, 1, SSD1306_WHITE);
+        // Foreground: Twisting 3D Double Helix with Spindle Envelope
+        for (int x = 8; x < SCREEN_WIDTH - 8; x += 5) {
+            // Spindle shape envelope (thicker in middle, tapers to zero at edges)
+            float envelope = sin((x - 8) * 3.14159 / (SCREEN_WIDTH - 16));
+            float amp = 14.0 * envelope;
             
-            // Dynamic sparks at the leading edge of the progress bar
-            if (progressW < 82) {
-                int sparkX = 38 + progressW;
-                if ((animationFrame % 2) == 0) {
-                    display.drawPixel(sparkX + 1, 19, SSD1306_WHITE);
-                    display.drawPixel(sparkX + 2, 21, SSD1306_WHITE);
-                } else {
-                    display.drawPixel(sparkX + 1, 21, SSD1306_WHITE);
-                    display.drawPixel(sparkX + 3, 19, SSD1306_WHITE);
-                }
-            }
+            // Generate two anti-phase sine waves
+            int y1 = 16 + (int)(amp * sin(x * 0.15 + t));
+            int y2 = 16 - (int)(amp * sin(x * 0.15 + t));
+            
+            // Draw connection line (representing DNA bonds / energy linkage)
+            display.drawLine(x, y1, x, y2, SSD1306_WHITE);
+            
+            // Draw nodes at endpoints
+            display.fillRect(x - 1, y1 - 1, 3, 3, SSD1306_WHITE);
+            display.fillRect(x - 1, y2 - 1, 3, 3, SSD1306_WHITE);
         }
     }
     else if (globalState == "COMPLETE") {
