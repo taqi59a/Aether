@@ -76,15 +76,15 @@ const uint8_t HALF_STEP[8][4] = {
 #define HTTP_PORT 80
 
 const int NUM_NETWORKS = 2;
-const char* WIFI_SSIDS[NUM_NETWORKS]  = { "VOO-2413CT6", "Taqi IP15" };
+const char* WIFI_SSIDS[NUM_NETWORKS]  = { "Taqi IP15", "VOO-2413CT6" };
 const char* WIFI_PASSES[NUM_NETWORKS] = { "12345679", "12345679" };
 String activeSSID = "None";
 
 int  wifiNetIndex      = 0;
 bool wifiServersUp     = false;
 unsigned long wifiAttemptStart = 0;
-const unsigned long WIFI_ATTEMPT_TIMEOUT = 6000;
-const unsigned long WIFI_RETRY_GAP       = 3000;
+const unsigned long WIFI_ATTEMPT_TIMEOUT = 3000;
+const unsigned long WIFI_RETRY_GAP       = 1000;
 unsigned long wifiNextActionAt = 0;
 
 // ================================================
@@ -840,6 +840,7 @@ void setup() {
     homing();
 
     WiFi.mode(WIFI_STA);
+    WiFi.setSleep(false); // Disable modem sleep to speed up connection handshake
     WiFi.begin(WIFI_SSIDS[0], WIFI_PASSES[0]);
     wifiAttemptStart = millis();
     wifiNetIndex     = 1;
