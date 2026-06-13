@@ -328,8 +328,7 @@ void moveTo(int target) {
         }
         delayMicroseconds(currentDelay);
 
-        if (i % 120 == 0) {
-            if (wifiServersUp) { ws.loop(); server.handleClient(); }
+        if (i % 240 == 0) {
             animationFrame++;
             oledDirty = true;
             updateOLED();
