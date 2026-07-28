@@ -58,12 +58,12 @@ unsigned long lastRfidScanMs = 0;
 
 // ================================================
 //  GLOBAL MOTOR & MOVEMENT SETTINGS
-//  (Optimized for 5V DRV8833 High Speed & High Torque)
+//  (Max Torque & Pushing Power for 5V DRV8833 Driver)
 // ================================================
 const int totalSteps = 3200;
-const int maxSpeed   = 800;  // 800us per step = 75% Faster Smooth Motor Speed at 5V
-const int startSpeed = 1800; // 1800us startup delay for solid breakaway torque
-const int rampSteps  = 120;  // Smooth S-curve acceleration ramp
+const int maxSpeed   = 1800; // 1800us per step = MAXIMUM HIGH-TORQUE CRUISE SPEED AT 5V
+const int startSpeed = 2600; // 2600us startup delay for solid breakaway torque
+const int rampSteps  = 80;   // Short 80-step ramp to deliver instant push force
 
 // ================================================
 //  QR CODE DATA MATRIX (www.taqiabbas.com/aether)
