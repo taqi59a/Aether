@@ -861,13 +861,15 @@ void handleRFID() {
   rfid.PICC_HaltA();
   rfid.PCD_StopCrypto1();
 
-  // 1. If inside Admin Setup screen and registration active -> Save card as Admin Card!
-  if (curScreen == SCR_ADMIN_SETUP && adminRegisterMode) {
-    adminRegisterMode = false;
-    saveAdminCardToNvs(cardUid);
-    beep(1500, 60); delay(70); beep(2000, 120);
+  // 1. If inside Admin Setup screen -> Process registration if active, else just display UID
+  if (curScreen == SCR_ADMIN_SETUP) {
+    if (adminRegisterMode) {
+      adminRegisterMode = false;
+      saveAdminCardToNvs(cardUid);
+      beep(1500, 60); delay(70); beep(2000, 120);
+    }
     drawAdminSetupScreen();
-    return;
+    return; // NEVER DISPENSE IN ADMIN SETUP!
   }
 
   // 2. Check if scanned card is Registered Admin Card -> Toggle Admin Session Lock
@@ -885,16 +887,20 @@ void handleRFID() {
       curScreen = SCR_STANDBY;
       standbyScreen();
     }
-    return;
+    return; // NEVER DISPENSE ON ADMIN CARD TAP!
   }
 
-  // 3. Normal Sanitary Card Tap Workflow
+  // 3. If currently inside ANY Menu/Submenu/Test screen -> Do NOT trigger dispensing!
+  if (curScreen != SCR_STANDBY) {
+    if (curScreen == SCR_RFID) {
+      drawRfidScreen(); // Update test screen display
+    }
+    return; // DO NOT DISPENSE WHEN INSIDE MENUS!
+  }
+
+  // 4. Normal Sanitary Card Tap Workflow (ONLY ON SCR_STANDBY!)
   rfidStatusText = "CARD READ -> SWEEPING...";
   Serial.printf("RFID Card Scanned! UID: %s\n", cardUid.c_str());
-
-  if (curScreen == SCR_RFID) {
-    drawRfidScreen();
-  }
 
   if (mqttClient.connected()) {
     String payload = "{\"id\":\"" + String(VENDING_ID) + "\",\"event\":\"card_scanned\",\"uid\":\"" + cardUid + "\"}";
