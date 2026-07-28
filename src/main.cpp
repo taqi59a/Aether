@@ -352,6 +352,7 @@ void connectToWiFi();
 void infoScreen();
 void drawCalibScreen();
 void drawStockScreen();
+void drawStockData();
 void drawI2cDiagScreen();
 void drawI2cDiagData();
 void drawSubMenu(const char* title, const char** labels, int count, int sel);
@@ -376,6 +377,7 @@ void runDispenseWorkflow(const char* cardUid);
 Adafruit_VL6180X vl6180x = Adafruit_VL6180X();
 bool tofOnline = false;
 bool diagFrameDrawn = false;
+bool stockFrameDrawn = false;
 int liveStockDistanceMm = 0;
 int emptyStockDepthMm = 350; // Zero stock distance threshold (Configurable via Menu)
 int fullStockDepthMm  = 20;  // Full stock distance threshold
@@ -1055,8 +1057,8 @@ void loop() {
     return;
   }
 
-  // 10-Second Inactivity Timeout: Return to Standby ONLY if untouched for 10s
-  if (curScreen != SCR_STANDBY && curScreen != SCR_WIFI_CONNECTING && curScreen != SCR_DISPENSE) {
+  // 10-Second Inactivity Timeout: Return to Standby ONLY when on Root Main Menu (SCR_MENU) and untouched for 10s
+  if (curScreen == SCR_MENU) {
     if (millis() - lastActionMs > 10000) {
       curScreen = SCR_STANDBY;
       standbyScreen();
@@ -1130,7 +1132,7 @@ void loop() {
     if (psh) {
       lastActionMs = millis();
       delay(100);
-      if (subSel == 0) { curScreen = SCR_STOCK; drawStockScreen(); }
+      if (subSel == 0) { curScreen = SCR_STOCK; stockFrameDrawn = false; drawStockScreen(); }
       else if (subSel == 1) { curScreen = SCR_DIAG_TOF; diagFrameDrawn = false; drawI2cDiagScreen(); }
     }
   }
@@ -1199,21 +1201,26 @@ void loop() {
     if (psh) { homing(); lastEnc = encCount; }
   }
   else if (curScreen == SCR_STOCK) {
+    if (!stockFrameDrawn) {
+      drawStockScreen();
+      stockFrameDrawn = true;
+    }
     static unsigned long lastStockRefreshMs = 0;
     if (millis() - lastStockRefreshMs > 200) {
       lastStockRefreshMs = millis();
-      drawStockScreen();
+      drawStockData();
     }
     if (abs(diff) >= 2) {
       int clicks = diff / 2;
       lastEnc = encCount;
       emptyStockDepthMm += (clicks != 0 ? clicks * 5 : (diff > 0 ? 5 : -5));
       emptyStockDepthMm = constrain(emptyStockDepthMm, 50, 500);
-      drawStockScreen();
+      drawStockData();
     }
     if (psh) {
       delay(150);
       saveStockPreferences();
+      stockFrameDrawn = false;
       curScreen = SCR_MENU;
       menuFull();
     }
@@ -2380,9 +2387,6 @@ void drawStockScreen() {
   tft.setCursor(12, 12);
   tft.print("STOCK & PROXIMITY");
 
-  int distMm = readLiveStockDistanceMm();
-  int pct = getStockPercentage();
-
   int cardY = 55;
   tft.fillRect(10, cardY, SW - 20, 175, getCardBg(true));
   tft.drawRect(10, cardY, SW - 20, 175, getTextMain());
@@ -2392,8 +2396,28 @@ void drawStockScreen() {
   tft.setCursor(20, cardY + 12);
   tft.print(tofOnline ? "SENSOR: ONLINE (VL6180X)" : "SENSOR: OFFLINE (CHECK 41/42)");
 
+  // Progress Bar Outer Rect (drawn ONCE)
+  int barX = 20;
+  int barY = cardY + 80;
+  int barW = SW - 60;
+  int barH = 22;
+  tft.drawRect(barX, barY, barW, barH, getTextMain());
+
+  drawStockData();
+}
+
+void drawStockData() {
+  // Overwrite dynamic values in-place (100% ZERO FLICKER!)
+  int distMm = readLiveStockDistanceMm();
+  int pct = getStockPercentage();
+  int cardY = 55;
+  uint16_t boxBg = getCardBg(true);
+  uint16_t textFg = getCardFg(true);
+
+  // 1. Distance Text
+  tft.fillRect(20, cardY + 30, SW - 60, 18, boxBg);
   tft.setTextSize(2);
-  tft.setTextColor(getCardFg(true), getCardBg(true));
+  tft.setTextColor(textFg, boxBg);
   tft.setCursor(20, cardY + 30);
   if (distMm >= 0) {
     tft.printf("DIST: %d mm", distMm);
@@ -2401,15 +2425,17 @@ void drawStockScreen() {
     tft.print("DIST: --- mm");
   }
 
+  // 2. Stock % Text
+  tft.fillRect(20, cardY + 54, SW - 60, 18, boxBg);
   tft.setCursor(20, cardY + 54);
   tft.printf("STOCK: %d%%", pct);
 
-  // Prominent Real-Time Obstacle Proximity Bar
+  // 3. Proximity Bar Fill Area
   int barX = 20;
   int barY = cardY + 80;
   int barW = SW - 60;
   int barH = 22;
-  tft.drawRect(barX, barY, barW, barH, getTextMain());
+  tft.fillRect(barX + 2, barY + 2, barW - 4, barH - 4, boxBg); // Clear inner bar
 
   int fillW = map(pct, 0, 100, 0, barW - 4);
   fillW = constrain(fillW, 0, barW - 4);
@@ -2419,11 +2445,15 @@ void drawStockScreen() {
     tft.fillRect(barX + 2, barY + 2, fillW, barH - 4, barColor);
   }
 
+  // 4. Zero Stock Depth Text
+  tft.fillRect(20, cardY + 115, SW - 60, 14, boxBg);
   tft.setTextSize(1);
-  tft.setTextColor(getCardFg(true), getCardBg(true));
+  tft.setTextColor(textFg, boxBg);
   tft.setCursor(20, cardY + 115);
   tft.printf("ZERO-STOCK DEPTH: %d mm", emptyStockDepthMm);
 
+  // 5. Proximity Status Text
+  tft.fillRect(20, cardY + 135, SW - 60, 14, boxBg);
   tft.setCursor(20, cardY + 135);
   tft.printf("PROXIMITY: %s", (distMm < 50) ? "CLOSE (FULL)" : ((distMm > emptyStockDepthMm - 50) ? "FAR (EMPTY)" : "MID-RANGE"));
 }
