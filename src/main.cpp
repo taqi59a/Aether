@@ -367,6 +367,7 @@ void drawRfidScreen();
 void drawCardLogsScreen();
 void drawCardDetailScreen(int idx);
 void drawAdminSetupScreen();
+void drawQuantumDispenseFrame(int cx, int cy);
 void drawQuantumDispenseHud(int cx, int cy, float angle, const char* statusMsg, const char* detailMsg, int progressPct);
 void runDispenseWorkflow(const char* cardUid);
 
@@ -2344,76 +2345,14 @@ void drawRfidScreen() {
 }
 
 // -------------------------------------------------------------
-//  QUANTUM TELEMETRY HUD DISPENSE ANIMATION
+//  QUANTUM TELEMETRY HUD DISPENSE ANIMATION (100% ZERO FLICKER!)
 // -------------------------------------------------------------
-void drawQuantumDispenseHud(int cx, int cy, float angle, const char* statusMsg, const char* detailMsg, int progressPct) {
-  uint16_t bg = C_BK; // High-tech deep dark background
-  tft.fillRect(10, 48, SW - 20, 168, bg);
-  tft.drawRect(10, 48, SW - 20, 168, C_CY);
+static int prevSatX[4] = {0};
+static int prevSatY[4] = {0};
 
-  // Outer HUD Corner Crosshairs
-  int len = 8;
-  tft.drawFastHLine(14, 52, len, C_WH);
-  tft.drawFastVLine(14, 52, len, C_WH);
-  tft.drawFastHLine(SW - 14 - len, 52, len, C_WH);
-  tft.drawFastVLine(SW - 14, 52, len, C_WH);
-  tft.drawFastHLine(14, 212, len, C_WH);
-  tft.drawFastVLine(14, 212 - len, len, C_WH);
-  tft.drawFastHLine(SW - 14 - len, 212, len, C_WH);
-  tft.drawFastVLine(SW - 14, 212 - len, len, C_WH);
-
-  // Concentric Core Rings
-  tft.drawCircle(cx, cy, 48, C_DG);
-  tft.drawCircle(cx, cy, 34, C_CY);
-  tft.drawCircle(cx, cy, 20, C_PU);
-
-  // 4 Rotating Orbital Plasma Satellites
-  for (int i = 0; i < 4; i++) {
-    float a = angle + (i * M_PI_2);
-    int px = cx + (int)(34.0 * cos(a));
-    int py = cy + (int)(34.0 * sin(a));
-    tft.fillCircle(px, py, 4, (i % 2 == 0) ? C_WH : C_CY);
-  }
-
-  // Live Circular Progress Ring (Ticked Vector Arc)
-  int numTicks = 24;
-  int activeTicks = (progressPct * numTicks) / 100;
-  for (int i = 0; i < numTicks; i++) {
-    float ta = (i * 2.0 * M_PI / numTicks) - M_PI_2;
-    int tx1 = cx + (int)(46.0 * cos(ta));
-    int ty1 = cy + (int)(46.0 * sin(ta));
-    int tx2 = cx + (int)(52.0 * cos(ta));
-    int ty2 = cy + (int)(52.0 * sin(ta));
-    uint16_t tickCol = (i < activeTicks) ? C_GN : C_DG;
-    tft.drawLine(tx1, ty1, tx2, ty2, tickCol);
-  }
-
-  // In-Center Live Readout
-  tft.setTextSize(2);
-  tft.setTextColor(C_WH, bg);
-  char pctStr[12];
-  snprintf(pctStr, sizeof(pctStr), "%d%%", progressPct);
-  int pLen = strlen(pctStr);
-  tft.setCursor(cx - (pLen * 6), cy - 6);
-  tft.print(pctStr);
-
-  // Status Message Banner
-  tft.setTextSize(1);
-  tft.setTextColor(C_GL, bg);
-  int stLen = strlen(statusMsg);
-  tft.setCursor(max(14, cx - (stLen * 3)), cy + 62);
-  tft.print(statusMsg);
-
-  // Detail Message Subtitle
-  tft.setTextColor(C_CY, bg);
-  int dtLen = strlen(detailMsg);
-  tft.setCursor(max(14, cx - (dtLen * 3)), cy + 76);
-  tft.print(detailMsg);
-}
-
-void runDispenseWorkflow(const char* cardUid) {
-  curScreen = SCR_DISPENSE;
-  tft.fillScreen(C_BK);
+void drawQuantumDispenseFrame(int cx, int cy) {
+  uint16_t bg = C_BK;
+  tft.fillScreen(bg);
 
   // Header Bar
   tft.fillRect(0, 0, SW, HDR_H, C_BK);
@@ -2430,6 +2369,100 @@ void runDispenseWorkflow(const char* cardUid) {
   tft.setCursor(10, SH - 16);
   tft.print("Quantum Telemetry Servo System");
 
+  // Outer HUD Card Area & Corner Crosshairs
+  tft.drawRect(10, 48, SW - 20, 168, C_CY);
+  int len = 8;
+  tft.drawFastHLine(14, 52, len, C_WH);
+  tft.drawFastVLine(14, 52, len, C_WH);
+  tft.drawFastHLine(SW - 14 - len, 52, len, C_WH);
+  tft.drawFastVLine(SW - 14, 52, len, C_WH);
+  tft.drawFastHLine(14, 212, len, C_WH);
+  tft.drawFastVLine(14, 212 - len, len, C_WH);
+  tft.drawFastHLine(SW - 14 - len, 212, len, C_WH);
+  tft.drawFastVLine(SW - 14, 212 - len, len, C_WH);
+
+  // Concentric Static Core Rings
+  tft.drawCircle(cx, cy, 48, C_DG);
+  tft.drawCircle(cx, cy, 34, C_CY);
+  tft.drawCircle(cx, cy, 20, C_PU);
+
+  // Reset satellite points
+  for (int i = 0; i < 4; i++) {
+    prevSatX[i] = 0;
+    prevSatY[i] = 0;
+  }
+}
+
+void drawQuantumDispenseHud(int cx, int cy, float angle, const char* statusMsg, const char* detailMsg, int progressPct) {
+  uint16_t bg = C_BK; // High-tech deep dark background
+
+  // 1. Erase ONLY previous 4 satellite dots in-place (ZERO FLICKER!)
+  for (int i = 0; i < 4; i++) {
+    if (prevSatX[i] != 0 && prevSatY[i] != 0) {
+      tft.fillCircle(prevSatX[i], prevSatY[i], 4, bg);
+    }
+  }
+
+  // Re-draw middle ring (in case erased dots overlapped it)
+  tft.drawCircle(cx, cy, 34, C_CY);
+
+  // 2. Draw new 4 Rotating Orbital Plasma Satellites
+  for (int i = 0; i < 4; i++) {
+    float a = angle + (i * M_PI_2);
+    int px = cx + (int)(34.0 * cos(a));
+    int py = cy + (int)(34.0 * sin(a));
+    prevSatX[i] = px;
+    prevSatY[i] = py;
+    tft.fillCircle(px, py, 4, (i % 2 == 0) ? C_WH : C_CY);
+  }
+
+  // 3. Live Circular Progress Ring (Ticked Vector Arc in-place update)
+  int numTicks = 24;
+  int activeTicks = (progressPct * numTicks) / 100;
+  for (int i = 0; i < numTicks; i++) {
+    float ta = (i * 2.0 * M_PI / numTicks) - M_PI_2;
+    int tx1 = cx + (int)(46.0 * cos(ta));
+    int ty1 = cy + (int)(46.0 * sin(ta));
+    int tx2 = cx + (int)(52.0 * cos(ta));
+    int ty2 = cy + (int)(52.0 * sin(ta));
+    uint16_t tickCol = (i < activeTicks) ? C_GN : C_DG;
+    tft.drawLine(tx1, ty1, tx2, ty2, tickCol);
+  }
+
+  // 4. In-Center Live Readout (In-place overwrite)
+  tft.fillRect(cx - 30, cy - 10, 60, 20, bg);
+  tft.setTextSize(2);
+  tft.setTextColor(C_WH, bg);
+  char pctStr[12];
+  snprintf(pctStr, sizeof(pctStr), "%d%%", progressPct);
+  int pLen = strlen(pctStr);
+  tft.setCursor(cx - (pLen * 6), cy - 6);
+  tft.print(pctStr);
+
+  // 5. Status Message Banner (In-place overwrite)
+  tft.fillRect(14, cy + 56, SW - 28, 14, bg);
+  tft.setTextSize(1);
+  tft.setTextColor(C_GL, bg);
+  int stLen = strlen(statusMsg);
+  tft.setCursor(max(14, cx - (stLen * 3)), cy + 58);
+  tft.print(statusMsg);
+
+  // 6. Detail Message Subtitle (In-place overwrite)
+  tft.fillRect(14, cy + 72, SW - 28, 14, bg);
+  tft.setTextColor(C_CY, bg);
+  int dtLen = strlen(detailMsg);
+  tft.setCursor(max(14, cx - (dtLen * 3)), cy + 74);
+  tft.print(detailMsg);
+}
+
+void runDispenseWorkflow(const char* cardUid) {
+  curScreen = SCR_DISPENSE;
+  int cx = SW / 2;
+  int cy = 118;
+
+  // Draw static HUD frame ONCE on entry
+  drawQuantumDispenseFrame(cx, cy);
+
   // Phase 1: CARD AUTHENTICATION
   setRgbLed(0, 255, 0); // Green LED ON
   beep(1800, 50); delay(60); beep(2400, 80);
@@ -2438,7 +2471,7 @@ void runDispenseWorkflow(const char* cardUid) {
   float ang = 0.0;
   for (int i = 0; i <= 20; i += 2) {
     ang += 0.3;
-    drawQuantumDispenseHud(SW / 2, 118, ang, "CARD AUTHENTICATED", uidStr.c_str(), i);
+    drawQuantumDispenseHud(cx, cy, ang, "CARD AUTHENTICATED", uidStr.c_str(), i);
     delay(40);
   }
 
@@ -2467,7 +2500,7 @@ void runDispenseWorkflow(const char* cardUid) {
       char mmBuf[32];
       int curMm = map(motorPos, 0, totalSteps, 0, 80);
       snprintf(mmBuf, sizeof(mmBuf), "EXTENDING: %d mm", curMm);
-      drawQuantumDispenseHud(SW / 2, 118, ang, "MOTOR EXTENDING...", mmBuf, pct);
+      drawQuantumDispenseHud(cx, cy, ang, "MOTOR EXTENDING...", mmBuf, pct);
     }
     delayMicroseconds(maxSpeed + 200);
   }
@@ -2491,7 +2524,7 @@ void runDispenseWorkflow(const char* cardUid) {
       char mmBuf[32];
       int curMm = map(motorPos, 0, totalSteps, 0, 80);
       snprintf(mmBuf, sizeof(mmBuf), "RETRACTING: %d mm", curMm);
-      drawQuantumDispenseHud(SW / 2, 118, ang, "PLEASE TAKE ITEM!", mmBuf, pct);
+      drawQuantumDispenseHud(cx, cy, ang, "PLEASE TAKE ITEM!", mmBuf, pct);
     }
     delayMicroseconds(maxSpeed + 200);
   }
@@ -2505,7 +2538,7 @@ void runDispenseWorkflow(const char* cardUid) {
   // Phase 4: DISPENSE COMPLETE & SUCCESS CHIME
   for (int f = 0; f < 10; f++) {
     ang += 0.4;
-    drawQuantumDispenseHud(SW / 2, 118, ang, "DISPENSE COMPLETE!", "Thank You!", 100);
+    drawQuantumDispenseHud(cx, cy, ang, "DISPENSE COMPLETE!", "Thank You!", 100);
     delay(50);
   }
 
