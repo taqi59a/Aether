@@ -58,12 +58,12 @@ unsigned long lastRfidScanMs = 0;
 
 // ================================================
 //  GLOBAL MOTOR & MOVEMENT SETTINGS
-//  (Optimized for Peak Speed & Maximum Push Torque)
+//  (Reliable Baseline + 25% Speed Boost)
 // ================================================
 const int totalSteps = 3200;
-const int maxSpeed   = 500;  // 500us per step = TOP SPEED MAX (2000 steps/sec)
-const int startSpeed = 1600; // 1600us per step = TOP TORQUE MAX (100% coil current saturation)
-const int rampSteps  = 200;  // 200-step S-Curve acceleration ramp to bridge Torque -> Speed cleanly
+const int maxSpeed   = 1200; // 1200us per step = 25% Faster smooth movement & high torque
+const int startSpeed = 2200; // 2200us startup delay for solid breakaway torque
+const int rampSteps  = 120;  // Smooth S-curve acceleration ramp
 
 // ================================================
 //  QR CODE DATA MATRIX (www.taqiabbas.com/aether)
