@@ -58,11 +58,11 @@ unsigned long lastRfidScanMs = 0;
 
 // ================================================
 //  GLOBAL MOTOR & MOVEMENT SETTINGS
-//  (Reliable Baseline + 25% Speed Boost)
+//  (Optimized for 5V DRV8833 High Speed & High Torque)
 // ================================================
 const int totalSteps = 3200;
-const int maxSpeed   = 1200; // 1200us per step = 25% Faster smooth movement & high torque
-const int startSpeed = 2200; // 2200us startup delay for solid breakaway torque
+const int maxSpeed   = 800;  // 800us per step = 75% Faster Smooth Motor Speed at 5V
+const int startSpeed = 1800; // 1800us startup delay for solid breakaway torque
 const int rampSteps  = 120;  // Smooth S-curve acceleration ramp
 
 // ================================================
@@ -2374,10 +2374,7 @@ void drawCareDispenseFrame() {
 void drawCareDispenseAnimation(int cx, int cy, float frameAngle, const char* titleMsg, const char* subMsg) {
   uint16_t bg = isDarkTheme ? C_BK : C_WH;
 
-  // 1. Clear inner animation circle area smoothly
-  tft.fillCircle(cx, cy, 38, bg);
-
-  // 2. Draw 8 Blooming Flower Petals
+  // 1. Draw 8 Blooming Flower Petals (NO background wipe = ZERO FLICKER!)
   float bloomRadius = 26.0 + 4.0 * sin(frameAngle * 2.0);
   uint16_t petalColor = isDarkTheme ? tft.color565(255, 140, 185) : tft.color565(255, 160, 200);
 
@@ -2389,11 +2386,11 @@ void drawCareDispenseAnimation(int cx, int cy, float frameAngle, const char* tit
     tft.drawCircle(px, py, 11, C_MG);
   }
 
-  // 3. Center Glowing Flower Core
+  // 2. Center Glowing Flower Core
   tft.fillCircle(cx, cy, 17, 0xFFE0); // Warm Golden Yellow
   tft.drawCircle(cx, cy, 17, C_WH);
 
-  // 4. Pulsing Center Heart
+  // 3. Pulsing Center Heart
   int heartScale = (sin(frameAngle * 3.0) > 0) ? 1 : 0;
   int hx = cx;
   int hy = cy - 2;
@@ -2401,8 +2398,7 @@ void drawCareDispenseAnimation(int cx, int cy, float frameAngle, const char* tit
   tft.fillCircle(hx + 4, hy - 3, 4 + heartScale, C_RD);
   tft.fillTriangle(hx - 8 - heartScale, hy - 1, hx + 8 + heartScale, hy - 1, hx, hy + 7 + heartScale, C_RD);
 
-  // 5. Overwrite Centered Title Message (Text Size 2, Large & Bold!)
-  tft.fillRect(14, cy + 42, SW - 28, 20, bg);
+  // 4. Overwrite Centered Title Message in-place (Text Size 2, Large & Bold!)
   tft.setTextSize(2);
   tft.setTextColor(C_MG, bg);
   int tLen = strlen(titleMsg);
@@ -2410,8 +2406,7 @@ void drawCareDispenseAnimation(int cx, int cy, float frameAngle, const char* tit
   tft.setCursor(tx, cy + 44);
   tft.print(titleMsg);
 
-  // 6. Overwrite Centered Subtitle Message (Text Size 1, Soft & Friendly)
-  tft.fillRect(14, cy + 66, SW - 28, 14, bg);
+  // 5. Overwrite Centered Subtitle Message in-place (Text Size 1, Soft & Friendly)
   tft.setTextSize(1);
   tft.setTextColor(getTextMain(), bg);
   int sLen = strlen(subMsg);
@@ -2436,10 +2431,10 @@ void runDispenseWorkflow(const char* cardUid) {
   for (int i = 0; i <= 15; i++) {
     ang += 0.25;
     drawCareDispenseAnimation(cx, cy, ang, "CARD VERIFIED!", "Welcome! ❤️");
-    delay(50);
+    delay(40);
   }
 
-  // Phase 2: MOTOR EXTENDING (DISPENSING)
+  // Phase 2: MOTOR EXTENDING (DISPENSING WITH 800US ACCELERATION RAMP)
   setRgbLed(0, 255, 0);
   beep(2000, 40); delay(50); beep(2200, 40);
   
@@ -2456,15 +2451,24 @@ void runDispenseWorkflow(const char* cardUid) {
     motorPos = (destPos > startPos) ? (startPos + stepIdx) : (startPos - stepIdx);
     doStep(motorPos);
     
-    // Smooth pixel update & flower bloom rotation every 25 motor steps
+    // Smooth linear acceleration ramp down to 800us high speed
+    int dly = startSpeed;
+    if (stepIdx < rampSteps) {
+      dly = startSpeed - ((startSpeed - maxSpeed) * stepIdx / rampSteps);
+    } else if ((totalDist - stepIdx) < rampSteps) {
+      dly = maxSpeed + ((startSpeed - maxSpeed) * (rampSteps - (totalDist - stepIdx)) / rampSteps);
+    } else {
+      dly = maxSpeed;
+    }
+    
     if (stepIdx % 25 == 0) {
       ang += 0.2;
       drawCareDispenseAnimation(cx, cy, ang, "DISPENSING CARE...", "Just a moment for you!");
     }
-    delayMicroseconds(maxSpeed + 200);
+    delayMicroseconds(dly);
   }
 
-  // Phase 3: ITEM READY & MOTOR RETRACTING
+  // Phase 3: ITEM READY & MOTOR RETRACTING (WITH 800US RAMP)
   setRgbLed(255, 0, 0); // Red LED ON for retracting & item pickup
   beep(1200, 80); delay(90); beep(1800, 80); delay(90); beep(2400, 150);
 
@@ -2476,11 +2480,20 @@ void runDispenseWorkflow(const char* cardUid) {
     motorPos = retractStartPos - stepIdx;
     doStep(motorPos);
     
+    int dly = startSpeed;
+    if (stepIdx < rampSteps) {
+      dly = startSpeed - ((startSpeed - maxSpeed) * stepIdx / rampSteps);
+    } else if ((retractTotal - stepIdx) < rampSteps) {
+      dly = maxSpeed + ((startSpeed - maxSpeed) * (rampSteps - (retractTotal - stepIdx)) / rampSteps);
+    } else {
+      dly = maxSpeed;
+    }
+
     if (stepIdx % 25 == 0) {
       ang += 0.2;
       drawCareDispenseAnimation(cx, cy, ang, "PLEASE TAKE ITEM", "Prepared with Care ❤️");
     }
-    delayMicroseconds(maxSpeed + 200);
+    delayMicroseconds(dly);
   }
 
   stopCoils();
@@ -2493,7 +2506,7 @@ void runDispenseWorkflow(const char* cardUid) {
   for (int f = 0; f < 12; f++) {
     ang += 0.3;
     drawCareDispenseAnimation(cx, cy, ang, "HAVE A GREAT DAY!", "You are wonderful! ✨");
-    delay(80);
+    delay(50);
   }
 
   setRgbLed(0, 0, 0); // LED OFF
