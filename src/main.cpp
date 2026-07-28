@@ -58,12 +58,12 @@ unsigned long lastRfidScanMs = 0;
 
 // ================================================
 //  GLOBAL MOTOR & MOVEMENT SETTINGS
-//  (100% Unified across TFT Knob, Web, MQTT & Serial)
+//  (Optimized for Peak Speed & Maximum Push Torque)
 // ================================================
 const int totalSteps = 3200;
-const int maxSpeed   = 1500; // 1500us per step = MAXIMUM POSSIBLE TORQUE & OPTIMUM SPEED
-const int startSpeed = 2600; // Solid startup torque delay
-const int rampSteps  = 120;  // Smooth S-curve acceleration ramp
+const int maxSpeed   = 500;  // 500us per step = TOP SPEED MAX (2000 steps/sec)
+const int startSpeed = 1600; // 1600us per step = TOP TORQUE MAX (100% coil current saturation)
+const int rampSteps  = 200;  // 200-step S-Curve acceleration ramp to bridge Torque -> Speed cleanly
 
 // ================================================
 //  QR CODE DATA MATRIX (www.taqiabbas.com/aether)
