@@ -367,8 +367,7 @@ void drawRfidScreen();
 void drawCardLogsScreen();
 void drawCardDetailScreen(int idx);
 void drawAdminSetupScreen();
-void drawCuteBearMascot(int cx, int cy, int frame, const char* mood, const char* titleMsg, const char* subMsg);
-void dispenseUpdate();
+void drawQuantumDispenseHud(int cx, int cy, float angle, const char* statusMsg, const char* detailMsg, int progressPct);
 void runDispenseWorkflow(const char* cardUid);
 
 // ================================================
@@ -710,10 +709,9 @@ void moveToTargetSmooth(int destinationPos) {
     delayMicroseconds(dly);
 
     // Non-blocking UI update every 120ms to eliminate motor stutter/jerking
-    if ((curScreen == SCR_ACTUATOR || curScreen == SCR_DISPENSE) && (millis() - lastUiUpdateMs > 120)) {
+    if ((curScreen == SCR_ACTUATOR) && (millis() - lastUiUpdateMs > 120)) {
       lastUiUpdateMs = millis();
-      if (curScreen == SCR_ACTUATOR) actUpdate("MOVING");
-      else dispenseUpdate();
+      actUpdate("MOVING");
     }
   }
 
@@ -2346,189 +2344,172 @@ void drawRfidScreen() {
 }
 
 // -------------------------------------------------------------
-//  CUTE SANITARY VENDING MASCOT ("AETHER-BEAR") & DISPENSE UI
+//  QUANTUM TELEMETRY HUD DISPENSE ANIMATION
 // -------------------------------------------------------------
-void drawCuteBearMascot(int cx, int cy, int frame, const char* mood, const char* titleMsg, const char* subMsg) {
-  uint16_t bg = getBgColor();
-  uint16_t bearBody  = tft.color565(255, 130, 170); // Rich Cute Hot Pink
-  uint16_t bearInner = tft.color565(255, 215, 230); // Soft Pastel Pink
-  uint16_t blush     = tft.color565(255, 80, 140);  // Deep Rosy Blush
+void drawQuantumDispenseHud(int cx, int cy, float angle, const char* statusMsg, const char* detailMsg, int progressPct) {
+  uint16_t bg = C_BK; // High-tech deep dark background
+  tft.fillRect(10, 48, SW - 20, 168, bg);
+  tft.drawRect(10, 48, SW - 20, 168, C_CY);
 
-  tft.fillRect(0, 45, SW, 162, bg);
+  // Outer HUD Corner Crosshairs
+  int len = 8;
+  tft.drawFastHLine(14, 52, len, C_WH);
+  tft.drawFastVLine(14, 52, len, C_WH);
+  tft.drawFastHLine(SW - 14 - len, 52, len, C_WH);
+  tft.drawFastVLine(SW - 14, 52, len, C_WH);
+  tft.drawFastHLine(14, 212, len, C_WH);
+  tft.drawFastVLine(14, 212 - len, len, C_WH);
+  tft.drawFastHLine(SW - 14 - len, 212, len, C_WH);
+  tft.drawFastVLine(SW - 14, 212 - len, len, C_WH);
 
-  // Animated Floating Hearts in Background
-  int heartY1 = cy - 35 - (frame % 8) * 2;
-  int heartY2 = cy - 30 - ((frame + 4) % 8) * 2;
-  
-  // Left Floating Heart
-  tft.fillCircle(cx - 52, heartY1, 3, C_RD);
-  tft.fillCircle(cx - 46, heartY1, 3, C_RD);
-  tft.fillTriangle(cx - 55, heartY1 + 1, cx - 43, heartY1 + 1, cx - 49, heartY1 + 7, C_RD);
+  // Concentric Core Rings
+  tft.drawCircle(cx, cy, 48, C_DG);
+  tft.drawCircle(cx, cy, 34, C_CY);
+  tft.drawCircle(cx, cy, 20, C_PU);
 
-  // Right Floating Heart
-  tft.fillCircle(cx + 46, heartY2, 3, C_RD);
-  tft.fillCircle(cx + 52, heartY2, 3, C_RD);
-  tft.fillTriangle(cx + 43, heartY2 + 1, cx + 55, heartY2 + 1, cx + 49, heartY2 + 7, C_RD);
-
-  // Outer Ears with inner pink pads
-  tft.fillCircle(cx - 32, cy - 32, 16, bearBody);
-  tft.fillCircle(cx - 32, cy - 32, 10, bearInner);
-  tft.fillCircle(cx + 32, cy - 32, 16, bearBody);
-  tft.fillCircle(cx + 32, cy - 32, 10, bearInner);
-
-  // Head
-  tft.fillCircle(cx, cy, 40, bearBody);
-  tft.fillCircle(cx, cy, 36, bearInner);
-
-  // Blush Cheeks
-  tft.fillCircle(cx - 24, cy + 10, 8, blush);
-  tft.fillCircle(cx + 24, cy + 10, 8, blush);
-
-  // Snout & Heart Nose
-  tft.fillRoundRect(cx - 16, cy + 4, 32, 20, 10, C_WH);
-  tft.fillTriangle(cx - 4, cy + 8, cx + 4, cy + 8, cx, cy + 13, C_RD); 
-  tft.drawFastHLine(cx - 4, cy + 17, 8, C_BK); 
-
-  // Eyes according to Mood
-  if (strcmp(mood, "THINK") == 0) {
-    // Cute ^ _ ^ closed happy eyes
-    tft.drawFastHLine(cx - 18, cy - 8, 10, C_BK);
-    tft.drawFastVLine(cx - 18, cy - 8, 4, C_BK);
-    tft.drawFastVLine(cx - 9, cy - 8, 4, C_BK);
-
-    tft.drawFastHLine(cx + 9, cy - 8, 10, C_BK);
-    tft.drawFastVLine(cx + 9, cy - 8, 4, C_BK);
-    tft.drawFastVLine(cx + 18, cy - 8, 4, C_BK);
-
-    // Animated Thinking Cloud Bubbles
-    int b1 = (frame % 3 >= 0) ? 4 : 0;
-    int b2 = (frame % 3 >= 1) ? 6 : 0;
-    int b3 = (frame % 3 >= 2) ? 9 : 0;
-
-    if (b1) tft.fillCircle(cx + 44, cy - 22, b1, C_CY);
-    if (b2) tft.fillCircle(cx + 54, cy - 32, b2, C_CY);
-    if (b3) {
-      tft.fillCircle(cx + 66, cy - 44, b3, C_CY);
-      tft.setTextSize(1);
-      tft.setTextColor(C_WH, C_CY);
-      tft.setCursor(cx + 63, cy - 47);
-      tft.print("?");
-    }
-  }
-  else if (strcmp(mood, "LOVE") == 0 || strcmp(mood, "HAPPY") == 0) {
-    // Animated Sparkling Heart Eyes
-    tft.fillCircle(cx - 14, cy - 10, 6, C_RD);
-    tft.fillCircle(cx - 8, cy - 10, 6, C_RD);
-    tft.fillTriangle(cx - 20, cy - 8, cx - 2, cy - 8, cx - 11, cy + 1, C_RD);
-
-    tft.fillCircle(cx + 8, cy - 10, 6, C_RD);
-    tft.fillCircle(cx + 14, cy - 10, 6, C_RD);
-    tft.fillTriangle(cx + 2, cy - 8, cx + 20, cy - 8, cx + 11, cy + 1, C_RD);
-  }
-  else {
-    // Big Shiny Curious Eyes
-    if (frame % 6 == 0) {
-      tft.drawFastHLine(cx - 18, cy - 8, 10, C_BK);
-      tft.drawFastHLine(cx + 8, cy - 8, 10, C_BK);
-    } else {
-      tft.fillCircle(cx - 14, cy - 8, 7, C_BK);
-      tft.fillCircle(cx - 16, cy - 10, 2, C_WH);
-
-      tft.fillCircle(cx + 14, cy - 8, 7, C_BK);
-      tft.fillCircle(cx + 12, cy - 10, 2, C_WH);
-    }
+  // 4 Rotating Orbital Plasma Satellites
+  for (int i = 0; i < 4; i++) {
+    float a = angle + (i * M_PI_2);
+    int px = cx + (int)(34.0 * cos(a));
+    int py = cy + (int)(34.0 * sin(a));
+    tft.fillCircle(px, py, 4, (i % 2 == 0) ? C_WH : C_CY);
   }
 
-  // Centered Title Message
+  // Live Circular Progress Ring (Ticked Vector Arc)
+  int numTicks = 24;
+  int activeTicks = (progressPct * numTicks) / 100;
+  for (int i = 0; i < numTicks; i++) {
+    float ta = (i * 2.0 * M_PI / numTicks) - M_PI_2;
+    int tx1 = cx + (int)(46.0 * cos(ta));
+    int ty1 = cy + (int)(46.0 * sin(ta));
+    int tx2 = cx + (int)(52.0 * cos(ta));
+    int ty2 = cy + (int)(52.0 * sin(ta));
+    uint16_t tickCol = (i < activeTicks) ? C_GN : C_DG;
+    tft.drawLine(tx1, ty1, tx2, ty2, tickCol);
+  }
+
+  // In-Center Live Readout
   tft.setTextSize(2);
-  tft.setTextColor(getAccentGold(), bg);
-  int tLen = strlen(titleMsg);
-  int tx = max(4, (SW - tLen * 12) / 2);
-  tft.setCursor(tx, 166);
-  tft.print(titleMsg);
+  tft.setTextColor(C_WH, bg);
+  char pctStr[12];
+  snprintf(pctStr, sizeof(pctStr), "%d%%", progressPct);
+  int pLen = strlen(pctStr);
+  tft.setCursor(cx - (pLen * 6), cy - 6);
+  tft.print(pctStr);
 
-  // Centered Subtitle Message
+  // Status Message Banner
   tft.setTextSize(1);
-  tft.setTextColor(getTextMain(), bg);
-  int sLen = strlen(subMsg);
-  int sx = max(4, (SW - sLen * 6) / 2);
-  tft.setCursor(sx, 192);
-  tft.print(subMsg);
-}
+  tft.setTextColor(C_GL, bg);
+  int stLen = strlen(statusMsg);
+  tft.setCursor(max(14, cx - (stLen * 3)), cy + 62);
+  tft.print(statusMsg);
 
-void dispenseUpdate() {
-  int trackY = SH - 45;
-  int trackH = 10;
-  int trackW = SW - 40;
-
-  tft.drawRoundRect(20, trackY, trackW, trackH, 5, isDarkTheme ? C_DG : 0xC618);
-  int bw = map(motorPos, 0, totalSteps, 0, trackW);
-  if (bw > 0) {
-    tft.fillRoundRect(20, trackY, bw, trackH, 5, C_MG);
-  }
+  // Detail Message Subtitle
+  tft.setTextColor(C_CY, bg);
+  int dtLen = strlen(detailMsg);
+  tft.setCursor(max(14, cx - (dtLen * 3)), cy + 76);
+  tft.print(detailMsg);
 }
 
 void runDispenseWorkflow(const char* cardUid) {
   curScreen = SCR_DISPENSE;
-  uint16_t bg = getBgColor();
-  tft.fillScreen(bg);
+  tft.fillScreen(C_BK);
 
-  // Header Bar (Centered "AETHER CARE" so it NEVER cuts off!)
-  tft.fillRect(0, 0, SW, HDR_H, isDarkTheme ? tft.color565(40, 15, 45) : tft.color565(255, 230, 240));
-  tft.drawFastHLine(0, HDR_H, SW, C_MG);
+  // Header Bar
+  tft.fillRect(0, 0, SW, HDR_H, C_BK);
+  tft.drawFastHLine(0, HDR_H, SW, C_CY);
   tft.setTextSize(2);
-  tft.setTextColor(C_MG);
-  tft.setCursor(54, 14);
-  tft.print("AETHER CARE");
+  tft.setTextColor(C_CY);
+  tft.setCursor(24, 12);
+  tft.print("AETHER DISPENSE");
 
   // Footer Bar
-  tft.fillRect(0, SH - FTR_H, SW, FTR_H, getFooterBg());
-  tft.setTextColor(isDarkTheme ? C_DG : 0x4208);
+  tft.fillRect(0, SH - FTR_H, SW, FTR_H, 0x1082);
+  tft.setTextColor(C_WH);
   tft.setTextSize(1);
   tft.setCursor(10, SH - 16);
-  tft.print("Sanitary Vending Care  ");
+  tft.print("Quantum Telemetry Servo System");
 
-  // Phase 1: CARD READ OK (GREEN LIGHT)
+  // Phase 1: CARD AUTHENTICATION
   setRgbLed(0, 255, 0); // Green LED ON
   beep(1800, 50); delay(60); beep(2400, 80);
-  String uidStr = "Card UID: " + String(cardUid);
-  for (int f = 0; f < 6; f++) {
-    drawCuteBearMascot(SW / 2, 105, f, "READ", "CARD READ OK!", uidStr.c_str());
-    delay(100);
+  String uidStr = "UID: " + cleanUid(cardUid);
+  
+  float ang = 0.0;
+  for (int i = 0; i <= 20; i += 2) {
+    ang += 0.3;
+    drawQuantumDispenseHud(SW / 2, 118, ang, "CARD AUTHENTICATED", uidStr.c_str(), i);
+    delay(40);
   }
 
-  // Phase 2: ANALYZING (GREEN LIGHT)
-  setRgbLed(0, 255, 0); // Green LED ON
+  // Phase 2: MOTOR EXTENDING (DISPENSING)
+  setRgbLed(0, 255, 0);
   beep(2000, 40); delay(50); beep(2200, 40);
-  for (int f = 0; f < 12; f++) {
-    String dotsStr = "Validating Access";
-    for (int d = 0; d < (f % 4); d++) dotsStr += ".";
-    drawCuteBearMascot(SW / 2, 105, f, "THINK", "ANALYZING...", dotsStr.c_str());
-    delay(120);
+  
+  sendStat("moving");
+  motorBusy = true;
+  stopNow = false;
+  
+  int startPos = motorPos;
+  int destPos = (maxLimitMm * totalSteps) / maxPhysicalMm;
+  int totalDist = abs(destPos - startPos);
+
+  for (int stepIdx = 0; stepIdx < totalDist; stepIdx++) {
+    if (stopNow) break;
+    motorPos = (destPos > startPos) ? (startPos + stepIdx) : (startPos - stepIdx);
+    doStep(motorPos);
+    
+    // Smooth pixel update & particle rotation every 25 motor steps
+    if (stepIdx % 25 == 0) {
+      ang += 0.25;
+      int pct = map(motorPos, 0, destPos, 20, 70);
+      pct = constrain(pct, 20, 70);
+      char mmBuf[32];
+      int curMm = map(motorPos, 0, totalSteps, 0, 80);
+      snprintf(mmBuf, sizeof(mmBuf), "EXTENDING: %d mm", curMm);
+      drawQuantumDispenseHud(SW / 2, 118, ang, "MOTOR EXTENDING...", mmBuf, pct);
+    }
+    delayMicroseconds(maxSpeed + 200);
   }
 
-  // Phase 3: DISPENSING FORWARD (GREEN LIGHT)
-  setRgbLed(0, 255, 0); // Green LED ON
-  drawCuteBearMascot(SW / 2, 105, 0, "HAPPY", "DISPENSING...", "Advancing Product...");
-  executeGlobalMotorMove(maxLimitMm);
-
-  // Phase 4: RETRACTING & WAITING (RED LIGHT / FAULT RED)
-  setRgbLed(255, 0, 0); // Red LED ON for Retracting & Fault
+  // Phase 3: ITEM READY & MOTOR RETRACTING
+  setRgbLed(255, 0, 0); // Red LED ON for retracting & item pickup
   beep(1200, 80); delay(90); beep(1800, 80); delay(90); beep(2400, 150);
-  drawCuteBearMascot(SW / 2, 105, 1, "LOVE", "TAKE YOUR ITEM ", "Retracting & Waiting...");
-  if (!stopNow) {
-    executeGlobalMotorMove(0);
-  } else {
-    setRgbLed(255, 0, 0); // Red Light on Fault
+
+  int retractStartPos = motorPos;
+  int retractTotal = retractStartPos;
+
+  for (int stepIdx = 0; stepIdx < retractTotal; stepIdx++) {
+    if (stopNow) break;
+    motorPos = retractStartPos - stepIdx;
+    doStep(motorPos);
+    
+    if (stepIdx % 25 == 0) {
+      ang -= 0.25;
+      int pct = map(motorPos, retractStartPos, 0, 70, 100);
+      pct = constrain(pct, 70, 100);
+      char mmBuf[32];
+      int curMm = map(motorPos, 0, totalSteps, 0, 80);
+      snprintf(mmBuf, sizeof(mmBuf), "RETRACTING: %d mm", curMm);
+      drawQuantumDispenseHud(SW / 2, 118, ang, "PLEASE TAKE ITEM!", mmBuf, pct);
+    }
+    delayMicroseconds(maxSpeed + 200);
   }
 
-  // Phase 5: THANK YOU & EXIT (LED OFF)
+  stopCoils();
+  motorPos = 0;
+  targetPos = 0;
+  motorBusy = false;
+  sendStat("idle");
+
+  // Phase 4: DISPENSE COMPLETE & SUCCESS CHIME
   for (int f = 0; f < 10; f++) {
-    drawCuteBearMascot(SW / 2, 105, f, "HAPPY", "THANK YOU! ", "Have a wonderful day!");
-    delay(120);
+    ang += 0.4;
+    drawQuantumDispenseHud(SW / 2, 118, ang, "DISPENSE COMPLETE!", "Thank You!", 100);
+    delay(50);
   }
 
-  setRgbLed(0, 0, 0); // LED OFF in all other situations
+  setRgbLed(0, 0, 0); // LED OFF
   curScreen = SCR_STANDBY;
   standbyScreen();
 }
