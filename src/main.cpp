@@ -200,6 +200,7 @@ enum Screen {
   SCR_RFID, 
   SCR_CARD_LOGS, 
   SCR_CARD_DETAIL, 
+  SCR_ADMIN_SETUP,
   SCR_WIFI, 
   SCR_WIFI_PASS, 
   SCR_WIFI_CONNECTING, 
@@ -233,10 +234,11 @@ const char* mLabelMotor[] = {
   "Motor Sweep Test"
 };
 
-const int NSUB_RFID = 2;
+const int NSUB_RFID = 3;
 const char* mLabelRfid[] = {
   "RFID Card Test",
-  "Card Access History"
+  "Card Access History",
+  "Admin Card Setup"
 };
 
 const int NSUB_SYS = 3;
@@ -364,6 +366,7 @@ bool checkK0KillSwitch();
 void drawRfidScreen();
 void drawCardLogsScreen();
 void drawCardDetailScreen(int idx);
+void drawAdminSetupScreen();
 void drawCuteBearMascot(int cx, int cy, int frame, const char* mood, const char* titleMsg, const char* subMsg);
 void dispenseUpdate();
 void runDispenseWorkflow(const char* cardUid);
@@ -382,6 +385,35 @@ bool tofOnline = false;
 bool diagFrameDrawn = false;
 bool stockFrameDrawn = false;
 int liveStockDistanceMm = 0;
+
+// Admin Card State Variables (NVS Persistent)
+String adminCardUid = "";
+bool adminSessionActive = false;
+bool adminRegisterMode = false;
+int adminOptSel = 0;
+
+void loadAdminCardFromNvs() {
+  Preferences prefs;
+  prefs.begin("admin-store", true);
+  adminCardUid = prefs.getString("admin_uid", "");
+  prefs.end();
+}
+
+void saveAdminCardToNvs(String uid) {
+  Preferences prefs;
+  prefs.begin("admin-store", false);
+  prefs.putString("admin_uid", uid);
+  prefs.end();
+  adminCardUid = uid;
+}
+
+void clearAdminCardFromNvs() {
+  Preferences prefs;
+  prefs.begin("admin-store", false);
+  prefs.remove("admin_uid");
+  prefs.end();
+  adminCardUid = "";
+}
 int emptyStockDepthMm = 350; // Zero stock distance threshold (Configurable via Menu)
 int fullStockDepthMm  = 20;  // Full stock distance threshold
 int currentStockPercent = 100;
@@ -825,6 +857,38 @@ void handleRFID() {
   }
   cardUid.toUpperCase();
   lastScannedUid = cardUid;
+
+  rfid.PICC_HaltA();
+  rfid.PCD_StopCrypto1();
+
+  // 1. If inside Admin Setup screen and registration active -> Save card as Admin Card!
+  if (curScreen == SCR_ADMIN_SETUP && adminRegisterMode) {
+    adminRegisterMode = false;
+    saveAdminCardToNvs(cardUid);
+    beep(1500, 60); delay(70); beep(2000, 120);
+    drawAdminSetupScreen();
+    return;
+  }
+
+  // 2. Check if scanned card is Registered Admin Card -> Toggle Admin Session Lock
+  if (adminCardUid.length() > 0 && adminCardUid.equalsIgnoreCase(cardUid)) {
+    if (!adminSessionActive) {
+      // UNLOCK MENU via Admin Card!
+      adminSessionActive = true;
+      beep(1200, 50); delay(60); beep(1600, 50); delay(60); beep(2000, 100);
+      curScreen = SCR_MENU;
+      menuFull();
+    } else {
+      // LOCK & CLOSE MENU via Admin Card!
+      adminSessionActive = false;
+      beep(1800, 50); delay(60); beep(1200, 100);
+      curScreen = SCR_STANDBY;
+      standbyScreen();
+    }
+    return;
+  }
+
+  // 3. Normal Sanitary Card Tap Workflow
   rfidStatusText = "CARD READ -> SWEEPING...";
   Serial.printf("RFID Card Scanned! UID: %s\n", cardUid.c_str());
 
@@ -837,13 +901,10 @@ void handleRFID() {
     mqttClient.publish(pubStatTopic.c_str(), payload.c_str());
   }
 
-  rfid.PICC_HaltA();
-  rfid.PCD_StopCrypto1();
-
   // Save Card Scan to Unique Card Database (NVS)
   saveCardScanToDb(cardUid.c_str());
 
-  // Launch Cute Vending Machine Dispense Workflow
+  // Launch Dispense Workflow
   runDispenseWorkflow(cardUid.c_str());
 }
 
@@ -860,6 +921,7 @@ void setup() {
   loadThemePreference();
   loadCardDbFromNvs();
   loadStockPreferences();
+  loadAdminCardFromNvs();
 
   // Initialize TOF050C / VL6180X I2C Distance Sensor
   initStockSensor();
@@ -1062,8 +1124,8 @@ void loop() {
     return;
   }
 
-  // 10-Second Inactivity Timeout: Return to Standby ONLY when on Root Main Menu (SCR_MENU) and untouched for 10s
-  if (curScreen == SCR_MENU) {
+  // 10-Second Inactivity Timeout: Return to Standby ONLY when on Root Main Menu (SCR_MENU) AND Admin Session is NOT Active
+  if (curScreen == SCR_MENU && !adminSessionActive) {
     if (millis() - lastActionMs > 10000) {
       curScreen = SCR_STANDBY;
       standbyScreen();
@@ -1176,6 +1238,27 @@ void loop() {
       delay(100);
       if (subSel == 0) { curScreen = SCR_RFID; drawRfidScreen(); }
       else if (subSel == 1) { curScreen = SCR_CARD_LOGS; drawCardLogsScreen(); }
+      else if (subSel == 2) { curScreen = SCR_ADMIN_SETUP; adminOptSel = 0; adminRegisterMode = false; drawAdminSetupScreen(); }
+    }
+  }
+  else if (curScreen == SCR_ADMIN_SETUP) {
+    if (abs(diff) >= 2) {
+      lastActionMs = millis();
+      lastEnc = encCount;
+      adminOptSel = (adminOptSel == 0) ? 1 : 0;
+      drawAdminSetupScreen();
+    }
+    if (psh) {
+      lastActionMs = millis();
+      delay(100);
+      if (adminOptSel == 0) {
+        adminRegisterMode = true;
+        drawAdminSetupScreen();
+      } else {
+        clearAdminCardFromNvs();
+        adminRegisterMode = false;
+        drawAdminSetupScreen();
+      }
     }
   }
   else if (curScreen == SCR_SUB_SYS) {
@@ -1654,15 +1737,20 @@ void drawSubMenu(const char* title, const char** labels, int count, int sel) {
   tft.setCursor(14, 12);
   tft.print(title);
 
-  // Live WiFi Connection Status Badge in Header
+  // Live WiFi & Admin Session Badge in Header
   tft.setTextSize(1);
+  if (adminSessionActive) {
+    tft.setTextColor(C_GL, isDarkTheme ? C_BK : 0xE71C);
+    tft.setCursor(SW - 110, 16);
+    tft.print("[ADMIN]");
+  }
   if (WiFi.status() == WL_CONNECTED) {
     tft.setTextColor(C_GN, isDarkTheme ? C_BK : 0xE71C);
-    tft.setCursor(SW - 65, 16);
+    tft.setCursor(SW - 55, 16);
     tft.print("WiFi: OK");
   } else {
     tft.setTextColor(isDarkTheme ? C_GR : C_RD, isDarkTheme ? C_BK : 0xE71C);
-    tft.setCursor(SW - 65, 16);
+    tft.setCursor(SW - 55, 16);
     tft.print("WiFi: OFF");
   }
 
@@ -2707,6 +2795,67 @@ void drawI2cDiagData() {
   tft.fillRect(valX, cardY + 98, valW, 10, C_BK);
   tft.setCursor(valX, cardY + 100);
   tft.printf("%-10d", emptyStockDepthMm);
+}
+
+void drawAdminSetupScreen() {
+  uint16_t bg = getBgColor();
+  tft.fillScreen(bg);
+
+  tft.fillRect(0, 0, SW, HDR_H, isDarkTheme ? C_BK : 0xE71C);
+  tft.drawFastHLine(0, HDR_H, SW, getTextMain());
+  tft.setTextSize(2);
+  tft.setTextColor(getTextMain());
+  tft.setCursor(12, 12);
+  tft.print("ADMIN CARD SETUP");
+
+  int cardY = 55;
+  tft.fillRect(10, cardY, SW - 20, 165, getCardBg(true));
+  tft.drawRect(10, cardY, SW - 20, 165, getTextMain());
+
+  tft.setTextSize(1);
+  tft.setTextColor(getCardFg(true), getCardBg(true));
+  tft.setCursor(20, cardY + 12);
+  tft.print("REGISTERED ADMIN CARD:");
+
+  tft.setTextSize(2);
+  tft.setTextColor(getAccentGold(), getCardBg(true));
+  tft.setCursor(20, cardY + 30);
+  if (adminCardUid.length() > 0) {
+    tft.print(adminCardUid.c_str());
+  } else {
+    tft.print("NO ADMIN CARD");
+  }
+
+  tft.setTextSize(1);
+  if (adminRegisterMode) {
+    tft.setTextColor(C_GN, getCardBg(true));
+    tft.setCursor(20, cardY + 58);
+    tft.print(">> TAP ANY RFID CARD NOW <<");
+  } else {
+    tft.setTextColor(getCardFg(true), getCardBg(true));
+    tft.setCursor(20, cardY + 58);
+    tft.print("Status: Ready for setup");
+  }
+
+  // Option 1: Register Card
+  int opt1Y = cardY + 80;
+  bool sel1 = (adminOptSel == 0);
+  tft.fillRect(20, opt1Y, SW - 40, 30, sel1 ? getTextMain() : getCardBg(true));
+  tft.drawRect(20, opt1Y, SW - 40, 30, getTextMain());
+  tft.setTextColor(sel1 ? getCardBg(true) : getCardFg(true), sel1 ? getTextMain() : getCardBg(true));
+  tft.setTextSize(1);
+  tft.setCursor(30, opt1Y + 10);
+  tft.print("1. TAP CARD TO REGISTER");
+
+  // Option 2: Remove Card
+  int opt2Y = cardY + 120;
+  bool sel2 = (adminOptSel == 1);
+  tft.fillRect(20, opt2Y, SW - 40, 30, sel2 ? getTextMain() : getCardBg(true));
+  tft.drawRect(20, opt2Y, SW - 40, 30, getTextMain());
+  tft.setTextColor(sel2 ? getCardBg(true) : getCardFg(true), sel2 ? getTextMain() : getCardBg(true));
+  tft.setTextSize(1);
+  tft.setCursor(30, opt2Y + 10);
+  tft.print("2. REMOVE ADMIN CARD");
 }
 
 
