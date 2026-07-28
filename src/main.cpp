@@ -185,23 +185,67 @@ void setRgbLed(uint8_t r, uint8_t g, uint8_t b) {
 }
 
 // UI State
-enum Screen { SCR_STANDBY, SCR_MENU, SCR_ACTUATOR, SCR_CALIB, SCR_STOCK, SCR_DIAG_TOF, SCR_RFID, SCR_CARD_LOGS, SCR_CARD_DETAIL, SCR_WIFI, SCR_WIFI_PASS, SCR_WIFI_CONNECTING, SCR_INFO, SCR_DISPENSE };
+enum Screen { 
+  SCR_STANDBY, 
+  SCR_MENU, 
+  SCR_SUB_STOCK, 
+  SCR_SUB_MOTOR, 
+  SCR_SUB_RFID, 
+  SCR_SUB_SYS, 
+  SCR_ACTUATOR, 
+  SCR_CALIB, 
+  SCR_STOCK, 
+  SCR_DIAG_TOF, 
+  SCR_RFID, 
+  SCR_CARD_LOGS, 
+  SCR_CARD_DETAIL, 
+  SCR_WIFI, 
+  SCR_WIFI_PASS, 
+  SCR_WIFI_CONNECTING, 
+  SCR_INFO, 
+  SCR_DISPENSE 
+};
 Screen curScreen = SCR_STANDBY;
 
-const int NMENU = 10;
+unsigned long lastK0PressMs = 0; // K0 Double-click Kill-Switch detection
+
+// Categorized Main Menu
+const int NMENU = 4;
 const char* mLabel[] = {
-  "Control Actuator",
-  "Stock Sensor & Calib",
-  "Motor Limit & Calib",
+  "1. Stock & Distance",
+  "2. Motor Control",
+  "3. RFID & Card Audit",
+  "4. Network & System"
+};
+
+// Submenu labels
+const int NSUB_STOCK = 2;
+const char* mLabelStock[] = {
+  "Stock Status & Bar",
+  "I2C ToF Diagnostic"
+};
+
+const int NSUB_MOTOR = 3;
+const char* mLabelMotor[] = {
+  "Manual Actuator Control",
+  "Motor Limit Calib",
+  "Motor Sweep Test"
+};
+
+const int NSUB_RFID = 2;
+const char* mLabelRfid[] = {
   "RFID Card Test",
-  "Card Access History",
-  "I2C ToF Diagnostic",
-  "Motor Sweep Diagnostic",
-  "WiFi Scanner",
+  "Card Access History"
+};
+
+const int NSUB_SYS = 3;
+const char* mLabelSys[] = {
+  "WiFi Settings",
   "Theme: LIGHT",
   "System Info"
 };
-int mSel = 0, lastEnc = 0;
+
+int mSel = 0, subSel = 0, lastEnc = 0;
 
 // WiFi Direct Connect state variables
 int wifiCount = 0;
@@ -224,7 +268,7 @@ const char* grid[] = {
   "w", "x", "y", "z", "DEL", "CON"
 };
 
-// ── STRICT BLACK AND WHITE COLOR PALETTE DEFINITIONS ──
+// ── HIGH CONTRAST THEME COLOR PALETTE DEFINITIONS ──
 #define C_BK   0x0000
 #define C_CY   0x07FF
 #define C_GL   0xFFE0
@@ -236,24 +280,27 @@ const char* grid[] = {
 #define C_GR   0x7BEF
 #define C_DG   0x4208
 
-// Strict Black & White Palette Getters (100% High Contrast)
-uint16_t getBgColor()     { return C_BK; } // Pure Black Background
-uint16_t getTextMain()   { return C_WH; } // Pure White Text
-uint16_t getTextSub()    { return C_GR; } // High Contrast Silver Subtitle
-uint16_t getAccentCyan() { return C_WH; } // White Accent Line
-uint16_t getAccentGold() { return C_WH; } // White Accent
-uint16_t getFooterBg()   { return 0x1082; } // Deep Charcoal Black Footer
+// Palette Getters (Light Theme Default, High Contrast)
+uint16_t getBgColor()     { return isDarkTheme ? C_BK : C_WH; }
+uint16_t getTextMain()   { return isDarkTheme ? C_WH : C_BK; }
+uint16_t getTextSub()    { return isDarkTheme ? C_GR : 0x4208; }
+uint16_t getAccentCyan() { return isDarkTheme ? C_WH : C_BK; }
+uint16_t getAccentGold() { return isDarkTheme ? C_WH : C_BK; }
+uint16_t getFooterBg()   { return isDarkTheme ? 0x1082 : 0xDF17; }
 
 uint16_t getCardBg(bool sel) {
-  return sel ? C_WH : C_BK; // Solid White Box when selected, Pure Black when normal
+  if (isDarkTheme) return sel ? C_WH : C_BK;
+  return sel ? C_BK : C_WH;
 }
 
 uint16_t getCardFg(bool sel) {
-  return sel ? C_BK : C_WH; // Pitch Black Text on White Box, Pure White Text on Black
+  if (isDarkTheme) return sel ? C_BK : C_WH;
+  return sel ? C_WH : C_BK;
 }
 
 uint16_t getCardBar(bool sel) {
-  return sel ? C_BK : C_WH; // Solid White/Black Bar
+  if (isDarkTheme) return sel ? C_BK : C_WH;
+  return sel ? C_WH : C_BK;
 }
 
 #define HDR_H   44
@@ -307,7 +354,9 @@ void drawCalibScreen();
 void drawStockScreen();
 void drawI2cDiagScreen();
 void drawI2cDiagData();
-void drawMenuSlotsOnly();
+void drawSubMenu(const char* title, const char** labels, int count, int sel);
+void playStartupMelody();
+bool checkK0KillSwitch();
 void drawRfidScreen();
 void drawCardLogsScreen();
 void drawCardDetailScreen(int idx);
@@ -676,16 +725,16 @@ void publishMqttStatus() {
 // ================================================
 void loadThemePreference() {
   Preferences prefs;
-  prefs.begin("sys-store", true);
-  isDarkTheme = prefs.getBool("darktheme", false);
+  prefs.begin("theme-config", true);
+  isDarkTheme = prefs.getBool("is_dark", false); // Default LIGHT theme
   prefs.end();
-  mLabel[4] = isDarkTheme ? "Theme: DARK" : "Theme: LIGHT";
+  mLabelSys[1] = isDarkTheme ? "Theme: DARK" : "Theme: LIGHT";
 }
 
 void saveThemePreference() {
   Preferences prefs;
-  prefs.begin("sys-store", false);
-  prefs.putBool("darktheme", isDarkTheme);
+  prefs.begin("theme-config", false);
+  prefs.putBool("is_dark", isDarkTheme);
   prefs.end();
 }
 
@@ -1006,21 +1055,40 @@ void loop() {
     return;
   }
 
-  if (curScreen != SCR_WIFI_CONNECTING && (millis() - lastActionMs > 30000)) {
-    curScreen = SCR_STANDBY;
-    standbyScreen();
-    delay(150);
-    return;
-  }
-
-  if (k0) {
-    delay(150);
-    if (curScreen == SCR_MENU) {
+  // 10-Second Inactivity Timeout: Return to Standby ONLY if untouched for 10s
+  if (curScreen != SCR_STANDBY && curScreen != SCR_WIFI_CONNECTING && curScreen != SCR_DISPENSE) {
+    if (millis() - lastActionMs > 10000) {
       curScreen = SCR_STANDBY;
       standbyScreen();
-    } else if (curScreen == SCR_WIFI_PASS) {
-      curScreen = SCR_WIFI;
-      wifiScreen();
+      delay(150);
+      return;
+    }
+  }
+
+  // K0 Button Handling: Single click or Double-Click Kill-Switch
+  if (k0) {
+    lastActionMs = millis();
+    if (checkK0KillSwitch()) {
+      // DOUBLE CLICK KILL-SWITCH: Emergency cancel & return to Standby
+      beep(400, 150);
+      delay(100);
+      beep(200, 200);
+      curScreen = SCR_STANDBY;
+      standbyScreen();
+      lastEnc = encCount;
+      return;
+    }
+
+    delay(100);
+    if (curScreen == SCR_WIFI_PASS) {
+      // Single K0 Click in Keyboard = FINAL ENTER / CONNECT!
+      connectToWiFi();
+    } else if (curScreen == SCR_SUB_STOCK || curScreen == SCR_SUB_MOTOR || curScreen == SCR_SUB_RFID || curScreen == SCR_SUB_SYS) {
+      curScreen = SCR_MENU;
+      menuFull();
+    } else if (curScreen == SCR_MENU) {
+      curScreen = SCR_STANDBY;
+      standbyScreen();
     } else {
       curScreen = SCR_MENU;
       menuFull();
@@ -1031,79 +1099,94 @@ void loop() {
 
   if (curScreen == SCR_MENU) {
     if (abs(diff) >= 2) {
+      lastActionMs = millis();
       lastEnc = encCount;
-      int oldSel = mSel;
       mSel += (diff > 0) ? 1 : -1;
       if (mSel < 0) mSel = NMENU - 1;
       if (mSel >= NMENU) mSel = 0;
-
-      int oldTop = menuTopIdx;
-      if (mSel < menuTopIdx) {
-        menuTopIdx = mSel;
-      } else if (mSel >= menuTopIdx + 5) {
-        menuTopIdx = mSel - 4;
-      }
-      menuTopIdx = constrain(menuTopIdx, 0, max(0, NMENU - 5));
-
-      if (menuTopIdx == oldTop) {
-        // Redraw ONLY the two changed items in-place (ZERO FLICKER!)
-        menuItemView(oldSel - menuTopIdx, oldSel, false);
-        menuItemView(mSel - menuTopIdx, mSel, true);
-      } else {
-        // Redraw menu slots only without full screen refresh
-        drawMenuSlotsOnly();
-      }
+      menuFull();
     }
     if (psh) {
+      lastActionMs = millis();
       delay(100);
+      subSel = 0;
       switch (mSel) {
-        case 0: 
-          curScreen = SCR_ACTUATOR; 
-          targetPos = motorPos;
-          lastBw = -1;
-          actScreen(); 
-          break;
-        case 1: 
-          curScreen = SCR_STOCK; 
-          drawStockScreen(); 
-          break;
-        case 2: 
-          curScreen = SCR_CALIB; 
-          drawCalibScreen(); 
-          break;
-        case 3: 
-          curScreen = SCR_RFID; 
-          drawRfidScreen(); 
-          break;
-        case 4: 
-          curScreen = SCR_CARD_LOGS; 
-          drawCardLogsScreen(); 
-          break;
-        case 5:
-          curScreen = SCR_DIAG_TOF;
-          diagFrameDrawn = false;
-          drawI2cDiagScreen();
-          break;
-        case 6: 
-          executeGlobalMotorMove(maxLimitMm);
-          if (!stopNow) executeGlobalMotorMove(0);
-          lastEnc = encCount;
-          break;
-        case 7: 
-          curScreen = SCR_WIFI; 
-          wifiScreen(); 
-          break;
-        case 8: 
-          isDarkTheme = !isDarkTheme;
-          mLabel[8] = isDarkTheme ? "Theme: DARK" : "Theme: LIGHT";
-          saveThemePreference();
-          menuFull();
-          break;
-        case 9: 
-          curScreen = SCR_INFO; 
-          infoScreen(); 
-          break;
+        case 0: curScreen = SCR_SUB_STOCK; drawSubMenu("STOCK & SENSOR", mLabelStock, NSUB_STOCK, 0); break;
+        case 1: curScreen = SCR_SUB_MOTOR; drawSubMenu("MOTOR CONTROL", mLabelMotor, NSUB_MOTOR, 0); break;
+        case 2: curScreen = SCR_SUB_RFID; drawSubMenu("RFID & CARD DB", mLabelRfid, NSUB_RFID, 0); break;
+        case 3: curScreen = SCR_SUB_SYS; drawSubMenu("NETWORK & SYSTEM", mLabelSys, NSUB_SYS, 0); break;
       }
+    }
+  }
+  else if (curScreen == SCR_SUB_STOCK) {
+    if (abs(diff) >= 2) {
+      lastActionMs = millis();
+      lastEnc = encCount;
+      subSel += (diff > 0) ? 1 : -1;
+      if (subSel < 0) subSel = NSUB_STOCK - 1;
+      if (subSel >= NSUB_STOCK) subSel = 0;
+      drawSubMenu("STOCK & SENSOR", mLabelStock, NSUB_STOCK, subSel);
+    }
+    if (psh) {
+      lastActionMs = millis();
+      delay(100);
+      if (subSel == 0) { curScreen = SCR_STOCK; drawStockScreen(); }
+      else if (subSel == 1) { curScreen = SCR_DIAG_TOF; diagFrameDrawn = false; drawI2cDiagScreen(); }
+    }
+  }
+  else if (curScreen == SCR_SUB_MOTOR) {
+    if (abs(diff) >= 2) {
+      lastActionMs = millis();
+      lastEnc = encCount;
+      subSel += (diff > 0) ? 1 : -1;
+      if (subSel < 0) subSel = NSUB_MOTOR - 1;
+      if (subSel >= NSUB_MOTOR) subSel = 0;
+      drawSubMenu("MOTOR CONTROL", mLabelMotor, NSUB_MOTOR, subSel);
+    }
+    if (psh) {
+      lastActionMs = millis();
+      delay(100);
+      if (subSel == 0) { curScreen = SCR_ACTUATOR; targetPos = motorPos; lastBw = -1; actScreen(); }
+      else if (subSel == 1) { curScreen = SCR_CALIB; drawCalibScreen(); }
+      else if (subSel == 2) { executeGlobalMotorMove(maxLimitMm); if (!stopNow) executeGlobalMotorMove(0); lastEnc = encCount; }
+    }
+  }
+  else if (curScreen == SCR_SUB_RFID) {
+    if (abs(diff) >= 2) {
+      lastActionMs = millis();
+      lastEnc = encCount;
+      subSel += (diff > 0) ? 1 : -1;
+      if (subSel < 0) subSel = NSUB_RFID - 1;
+      if (subSel >= NSUB_RFID) subSel = 0;
+      drawSubMenu("RFID & CARD DB", mLabelRfid, NSUB_RFID, subSel);
+    }
+    if (psh) {
+      lastActionMs = millis();
+      delay(100);
+      if (subSel == 0) { curScreen = SCR_RFID; drawRfidScreen(); }
+      else if (subSel == 1) { curScreen = SCR_CARD_LOGS; drawCardLogsScreen(); }
+    }
+  }
+  else if (curScreen == SCR_SUB_SYS) {
+    if (abs(diff) >= 2) {
+      lastActionMs = millis();
+      lastEnc = encCount;
+      subSel += (diff > 0) ? 1 : -1;
+      if (subSel < 0) subSel = NSUB_SYS - 1;
+      if (subSel >= NSUB_SYS) subSel = 0;
+      drawSubMenu("NETWORK & SYSTEM", mLabelSys, NSUB_SYS, subSel);
+    }
+    if (psh) {
+      lastActionMs = millis();
+      delay(100);
+      if (subSel == 0) { curScreen = SCR_WIFI; wifiScreen(); }
+      else if (subSel == 1) {
+        isDarkTheme = !isDarkTheme;
+        mLabelSys[1] = isDarkTheme ? "Theme: DARK" : "Theme: LIGHT";
+        saveThemePreference();
+        drawSubMenu("NETWORK & SYSTEM", mLabelSys, NSUB_SYS, subSel);
+      }
+      else if (subSel == 2) { curScreen = SCR_INFO; infoScreen(); }
     }
   }
   else if (curScreen == SCR_ACTUATOR) {
@@ -1392,144 +1475,25 @@ void drawQRCode(int x0, int y0, int pixelSize) {
   }
 }
 
+void playStartupMelody() {
+  beep(1047, 70); delay(90);  // C6
+  beep(1318, 70); delay(90);  // E6
+  beep(1568, 70); delay(90);  // G6
+  beep(2093, 150); delay(160); // C7
+}
+
+bool checkK0KillSwitch() {
+  unsigned long now = millis();
+  if (now - lastK0PressMs < 2000 && lastK0PressMs > 0) {
+    lastK0PressMs = 0;
+    return true; // KILL SWITCH TRIGGERED!
+  }
+  lastK0PressMs = now;
+  return false;
+}
+
 void startup() {
-  // --- Belgium startup screen ---
-  tft.fillScreen(C_WH);
-  
-  // Draw top text (Line 1): "Made with ❤️"
-  tft.setTextSize(2);
-  tft.setTextColor(C_BK);
-  tft.setCursor(50, 30);
-  tft.print("Made with");
-  
-  // Draw the red heart (Size 2)
-  int heartX = 168; // Center of the heart
-  int heartY = 38; // Align vertically with text (text is 16px high, so 30 + 8 = 38)
-  tft.fillCircle(heartX - 5, heartY, 5, C_RD);
-  tft.fillCircle(heartX + 5, heartY, 5, C_RD);
-  tft.fillTriangle(heartX - 10, heartY, heartX + 10, heartY, heartX, heartY + 11, C_RD);
-  
-  // Draw top text (Line 2): "in Belgium"
-  tft.setCursor(60, 52);
-  tft.print("in Belgium");
-  
-  // Draw smaller Belgium flag in the middle
-  // Width: 90, Height: 60. Stripes are 30 pixels wide each.
-  int flagX = (SW - 90) / 2;
-  int flagY = 95;
-  
-  // Draw a subtle border around the flag
-  tft.drawRect(flagX - 1, flagY - 1, 92, 62, tft.color565(220, 220, 220));
-  
-  tft.fillRect(flagX, flagY, 30, 60, C_BK); // Black stripe
-  tft.fillRect(flagX + 30, flagY, 30, 60, 0xFFE0); // Yellow stripe (pure yellow)
-  tft.fillRect(flagX + 60, flagY, 30, 60, C_RD); // Red stripe
-  
-  // Draw "a StartLab" and "Brussels Project" below
-  tft.setTextColor(C_BK);
-  tft.setTextSize(2);
-  // "a StartLab" is 10 characters. Width = 120 pixels.
-  tft.setCursor(60, 185);
-  tft.print("a StartLab");
-  
-  // "Brussels Project" is 16 characters. Width = 192 pixels.
-  tft.setCursor(24, 210);
-  tft.print("Brussels Project");
-  
-  delay(5000); // 5 seconds delay
-  // --- End of Belgium startup screen ---
-
-  tft.fillScreen(C_BK);
-  int cx = SW / 2;
-  int cy = SH / 2 - 20;
-
-  tft.setTextSize(1);
-  tft.setTextColor(C_CY);
-  
-  const char* logs[] = {
-    "SYS_BOOT: ESP32-S3 CORE [240MHz] ... OK",
-    "SYS_BOOT: VENDING MACHINE ID #5552  ... OK",
-    "SYS_BOOT: COIL DRIVER DRV8833   ... OK",
-    "SYS_BOOT: HARDWARE SPI ST7789   ... SYNC",
-    "SYS_BOOT: MQTT CLOUD BROKER HUB  ... CONNECT",
-    "SYS_BOOT: LAUNCHING AETHER CORE ENGINE..."
-  };
-  
-  for (int l = 0; l < 6; l++) {
-    tft.setCursor(10, 30 + l * 20);
-    const char* line = logs[l];
-    for (int i = 0; i < strlen(line); i++) {
-      tft.print(line[i]);
-      beep(2500, 2);
-      delay(12);
-    }
-    delay(100);
-  }
-  delay(300);
-  tft.fillScreen(C_BK);
-
-  drawHudBrackets();
-  beep(150, 150);
-  delay(100);
-  beep(220, 200);
-
-  long start = millis();
-  float ax = 0.0, ay = 0.0;
-  int prevX[6] = {0}, prevY[6] = {0};
-  
-  while (millis() - start < 1800) {
-    eraseOctahedron(prevX, prevY);
-    ax += 0.04;
-    ay += 0.06;
-    drawOctahedron(ax, ay, cx, cy, C_CY, prevX, prevY);
-    delay(20);
-  }
-
-  for (int r = 10; r < 75; r += 10) {
-    tft.drawCircle(cx, cy, r, C_CY);
-    beep(400 + r * 10, 8);
-    delay(12);
-    tft.drawCircle(cx, cy, r, C_BK);
-  }
-  tft.fillScreen(C_BK);
-
-  drawHudBrackets();
-  const char* txt = "AETHER";
-  int tx = cx - 54;
-  int ty = cy + 20;
-  
-  for (int x = tx - 10; x < tx + 120; x += 6) {
-    tft.drawFastVLine(x, ty - 2, 28, C_WH);
-    beep(1000 + x * 4, 8);
-    delay(12);
-    drawLogoText(txt, tx, ty, 3);
-    tft.drawFastVLine(x, ty - 2, 28, C_BK);
-  }
-  noTone(BUZZER_PIN);
-  drawLogoText(txt, tx, ty, 3);
-
-  tft.setTextSize(1);
-  tft.setTextColor(C_GL);
-  tft.setCursor(57, ty + 30);
-  const char* sub = "VENDING MACHINE #5552";
-  for(int i = 0; i < strlen(sub); i++) {
-    tft.print(sub[i]);
-    beep(2000, 6);
-    delay(15);
-  }
-  
-  int ly = SH - 25;
-  tft.drawRoundRect(20, ly, SW - 40, 8, 4, C_DG);
-  for (int i = 0; i < 10; i++) {
-    tft.fillRect(24 + i * 20, ly + 2, 16, 4, C_CY);
-    beep(600 + i * 70, 15);
-    delay(60);
-  }
-  
-  beep(880, 80);
-  delay(90);
-  beep(1100, 120);
-  delay(300);
+  playStartupMelody();
 }
 
 void standbyScreen() {
@@ -1554,76 +1518,35 @@ void standbyScreen() {
 }
 
 void menuFull() {
+  drawSubMenu("MAIN MENU", mLabel, NMENU, mSel);
+}
+
+void drawSubMenu(const char* title, const char** labels, int count, int sel) {
   uint16_t bg = getBgColor();
   tft.fillScreen(bg);
 
-  // Header Bar
-  tft.fillRect(0, 0, SW, HDR_H, C_BK);
-  tft.drawFastHLine(0, HDR_H, SW, C_WH);
+  tft.fillRect(0, 0, SW, HDR_H, isDarkTheme ? C_BK : 0xE71C);
+  tft.drawFastHLine(0, HDR_H, SW, getTextMain());
+  tft.setTextSize(2);
+  tft.setTextColor(getTextMain());
+  tft.setCursor(14, 12);
+  tft.print(title);
 
-  drawLogoText("AETHER", 14, 6, 2);
+  for (int i = 0; i < count; i++) {
+    int y = ITEM_Y0 + i * ITEM_SP;
+    bool isSel = (i == sel);
 
-  tft.setTextSize(1);
-  tft.setTextColor(C_GR);
-  tft.setCursor(14, 28);
-  tft.print("MACHINE #5552");
+    uint16_t boxBg = getCardBg(isSel);
+    uint16_t textFg = getCardFg(isSel);
 
-  tft.setTextColor(C_GR);
-  tft.setTextSize(1);
-  tft.setCursor(SW - 32, 18);
-  tft.print("v1.6");
+    tft.fillRect(10, y, SW - 20, ITEM_H, boxBg);
+    tft.drawRect(10, y, SW - 20, ITEM_H, getTextMain());
 
-  // Keep selected item visible in viewport
-  if (mSel < menuTopIdx) {
-    menuTopIdx = mSel;
-  } else if (mSel >= menuTopIdx + 5) {
-    menuTopIdx = mSel - 4;
+    tft.setTextSize(1);
+    tft.setTextColor(textFg, boxBg);
+    tft.setCursor(24, y + 10);
+    tft.print(labels[i]);
   }
-  menuTopIdx = constrain(menuTopIdx, 0, max(0, NMENU - 5));
-
-  drawMenuSlotsOnly();
-
-  // Footer
-  tft.fillRect(0, SH - FTR_H, SW, FTR_H, 0x1082);
-  tft.setTextColor(C_WH);
-  tft.setTextSize(1);
-  tft.setCursor(10, SH - 16);
-  tft.print("Rotate: Navigate | Press: Select");
-}
-
-void drawMenuSlotsOnly() {
-  // Render 5 visible items inside viewport
-  for (int i = 0; i < 5; i++) {
-    int itemIdx = menuTopIdx + i;
-    if (itemIdx < NMENU) {
-      menuItemView(i, itemIdx, itemIdx == mSel);
-    }
-  }
-
-  // Draw Vertical Scrollbar Indicator
-  int sbX = SW - 6;
-  int sbY = 48;
-  int sbH = SH - 48 - FTR_H;
-  tft.fillRect(sbX, sbY, 4, sbH, 0x2104);
-  int thumbH = max(12, sbH * 5 / NMENU);
-  int thumbY = sbY + (sbH - thumbH) * menuTopIdx / max(1, NMENU - 5);
-  tft.fillRoundRect(sbX, thumbY, 4, thumbH, 2, C_WH);
-}
-
-void menuItemView(int viewSlot, int itemIdx, bool sel) {
-  int y = 48 + viewSlot * 43; // 43px spacing per slot
-  uint16_t bg  = getCardBg(sel);
-  uint16_t fg  = getCardFg(sel);
-
-  tft.fillRect(4, y, SW - 14, 38, bg);
-  tft.drawRect(4, y, SW - 14, 38, C_WH);
-
-  tft.setTextSize(1);
-  tft.setTextColor(fg, bg);
-  tft.setCursor(16, y + 14);
-  char buf[24];
-  snprintf(buf, sizeof(buf), "%-20s", mLabel[itemIdx]);
-  tft.print(buf);
 }
 
 void actScreen() {
@@ -2439,53 +2362,33 @@ void drawCardDetailScreen(int idx) {
 
   tft.setCursor(20, cardY + 118);
   tft.printf("FIRST REGISTERED TIME: %ds ago", (int)(nowSec - cardDb[idx].firstSeenSec));
-
-  tft.fillRect(0, SH - FTR_H, SW, FTR_H, getFooterBg());
-  tft.setTextColor(isDarkTheme ? C_DG : 0x4208);
-  tft.setTextSize(1);
-  tft.setCursor(10, SH - 16);
-  tft.print("Press Knob / K0: Back to Card List");
 }
 
 void drawStockScreen() {
   uint16_t bg = getBgColor();
   tft.fillScreen(bg);
 
-  for (int y = 0; y < HDR_H; y++) {
-    uint16_t c;
-    if (isDarkTheme) {
-      c = tft.color565(0, map(y, 0, HDR_H, 20, 55), map(y, 0, HDR_H, 5, 18));
-    } else {
-      c = tft.color565(map(y, 0, HDR_H, 220, 200), map(y, 0, HDR_H, 255, 235), map(y, 0, HDR_H, 230, 210));
-    }
-    tft.drawFastHLine(0, y, SW, c);
-  }
-  tft.drawFastHLine(0, HDR_H, SW, C_CY);
+  tft.fillRect(0, 0, SW, HDR_H, isDarkTheme ? C_BK : 0xE71C);
+  tft.drawFastHLine(0, HDR_H, SW, getTextMain());
   tft.setTextSize(2);
-  tft.setTextColor(C_CY);
-  tft.setCursor(12, 14);
-  tft.print("STOCK SENSOR CALIB");
+  tft.setTextColor(getTextMain());
+  tft.setCursor(12, 12);
+  tft.print("STOCK & PROXIMITY");
 
   int distMm = readLiveStockDistanceMm();
   int pct = getStockPercentage();
 
   int cardY = 55;
-  tft.fillRect(10, cardY, SW - 20, 155, getCardBg(true));
-  tft.drawRect(10, cardY, SW - 20, 155, getAccentCyan());
+  tft.fillRect(10, cardY, SW - 20, 175, getCardBg(true));
+  tft.drawRect(10, cardY, SW - 20, 175, getTextMain());
 
   tft.setTextSize(1);
-  if (tofOnline) {
-    tft.setTextColor(C_GN, getCardBg(true));
-    tft.setCursor(20, cardY + 12);
-    tft.print("SENSOR: ONLINE (VL6180X)");
-  } else {
-    tft.setTextColor(C_RD, getCardBg(true));
-    tft.setCursor(20, cardY + 12);
-    tft.print("SENSOR: CHECK I2C (41/42)");
-  }
+  tft.setTextColor(tofOnline ? C_GN : C_RD, getCardBg(true));
+  tft.setCursor(20, cardY + 12);
+  tft.print(tofOnline ? "SENSOR: ONLINE (VL6180X)" : "SENSOR: OFFLINE (CHECK 41/42)");
 
   tft.setTextSize(2);
-  tft.setTextColor(getAccentGold(), getCardBg(true));
+  tft.setTextColor(getCardFg(true), getCardBg(true));
   tft.setCursor(20, cardY + 30);
   if (distMm >= 0) {
     tft.printf("DIST: %d mm", distMm);
@@ -2493,37 +2396,31 @@ void drawStockScreen() {
     tft.print("DIST: --- mm");
   }
 
-  tft.setCursor(20, cardY + 55);
+  tft.setCursor(20, cardY + 54);
   tft.printf("STOCK: %d%%", pct);
 
-  // Stock Progress Bar
+  // Prominent Real-Time Obstacle Proximity Bar
   int barX = 20;
-  int barY = cardY + 78;
+  int barY = cardY + 80;
   int barW = SW - 60;
-  int barH = 14;
+  int barH = 22;
   tft.drawRect(barX, barY, barW, barH, getTextMain());
-  int fillW = map(pct, 0, 100, 0, barW);
+
+  int fillW = map(pct, 0, 100, 0, barW - 4);
+  fillW = constrain(fillW, 0, barW - 4);
+
   if (fillW > 0) {
     uint16_t barColor = (pct > 50) ? C_GN : ((pct > 20) ? C_GL : C_RD);
-    tft.fillRect(barX, barY, fillW, barH, barColor);
+    tft.fillRect(barX + 2, barY + 2, fillW, barH - 4, barColor);
   }
 
   tft.setTextSize(1);
-  tft.setTextColor(getTextMain(), getCardBg(true));
-  tft.setCursor(20, cardY + 102);
+  tft.setTextColor(getCardFg(true), getCardBg(true));
+  tft.setCursor(20, cardY + 115);
   tft.printf("ZERO-STOCK DEPTH: %d mm", emptyStockDepthMm);
 
-  tft.setTextColor(getTextSub(), getCardBg(true));
-  tft.setCursor(20, cardY + 122);
-  tft.print("Rotate Knob: Set Empty Depth");
-  tft.setCursor(20, cardY + 137);
-  tft.print("Press Knob : Save & Exit");
-
-  tft.fillRect(0, SH - FTR_H, SW, FTR_H, getFooterBg());
-  tft.setTextColor(isDarkTheme ? C_DG : 0x4208);
-  tft.setTextSize(1);
-  tft.setCursor(10, SH - 16);
-  tft.print("Rotate: Adjust | Click: Save | K0: Back");
+  tft.setCursor(20, cardY + 135);
+  tft.printf("PROXIMITY: %s", (distMm < 50) ? "CLOSE (FULL)" : ((distMm > emptyStockDepthMm - 50) ? "FAR (EMPTY)" : "MID-RANGE"));
 }
 
 void drawI2cDiagScreen() {
