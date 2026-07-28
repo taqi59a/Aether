@@ -1506,6 +1506,91 @@ bool checkK0KillSwitch() {
 
 void startup() {
   playStartupMelody();
+
+  // --- Belgium Startup Screen ---
+  tft.fillScreen(C_WH);
+  
+  tft.setTextSize(2);
+  tft.setTextColor(C_BK);
+  tft.setCursor(50, 30);
+  tft.print("Made with");
+  
+  int heartX = 168;
+  int heartY = 38;
+  tft.fillCircle(heartX - 5, heartY, 5, C_RD);
+  tft.fillCircle(heartX + 5, heartY, 5, C_RD);
+  tft.fillTriangle(heartX - 10, heartY, heartX + 10, heartY, heartX, heartY + 11, C_RD);
+  
+  tft.setCursor(60, 52);
+  tft.print("in Belgium");
+  
+  int flagX = (SW - 90) / 2;
+  int flagY = 95;
+  tft.drawRect(flagX - 1, flagY - 1, 92, 62, tft.color565(220, 220, 220));
+  tft.fillRect(flagX, flagY, 30, 60, C_BK);
+  tft.fillRect(flagX + 30, flagY, 30, 60, 0xFFE0);
+  tft.fillRect(flagX + 60, flagY, 30, 60, C_RD);
+  
+  tft.setTextColor(C_BK);
+  tft.setTextSize(2);
+  tft.setCursor(60, 185);
+  tft.print("a StartLab");
+  tft.setCursor(24, 210);
+  tft.print("Brussels Project");
+  
+  delay(1500);
+
+  // --- 3D Rotating Octahedron HUD Animation ---
+  tft.fillScreen(C_BK);
+  int cx = SW / 2;
+  int cy = SH / 2 - 20;
+
+  drawHudBrackets();
+
+  long start = millis();
+  float ax = 0.0, ay = 0.0;
+  int prevX[6] = {0}, prevY[6] = {0};
+  
+  while (millis() - start < 1200) {
+    eraseOctahedron(prevX, prevY);
+    ax += 0.05;
+    ay += 0.07;
+    drawOctahedron(ax, ay, cx, cy, C_CY, prevX, prevY);
+    delay(20);
+  }
+
+  for (int r = 10; r < 75; r += 15) {
+    tft.drawCircle(cx, cy, r, C_CY);
+    delay(15);
+    tft.drawCircle(cx, cy, r, C_BK);
+  }
+  tft.fillScreen(C_BK);
+
+  drawHudBrackets();
+  const char* txt = "AETHER";
+  int tx = cx - 54;
+  int ty = cy + 20;
+  
+  for (int x = tx - 10; x < tx + 120; x += 8) {
+    tft.drawFastVLine(x, ty - 2, 28, C_WH);
+    delay(10);
+    drawLogoText(txt, tx, ty, 3);
+    tft.drawFastVLine(x, ty - 2, 28, C_BK);
+  }
+  drawLogoText(txt, tx, ty, 3);
+
+  tft.setTextSize(1);
+  tft.setTextColor(C_GL);
+  tft.setCursor(57, ty + 30);
+  tft.print("VENDING MACHINE #5552");
+  
+  int ly = SH - 25;
+  tft.drawRoundRect(20, ly, SW - 40, 8, 4, C_DG);
+  for (int i = 0; i < 10; i++) {
+    tft.fillRect(24 + i * 20, ly + 2, 16, 4, C_CY);
+    delay(30);
+  }
+  delay(200);
 }
 
 void standbyScreen() {
