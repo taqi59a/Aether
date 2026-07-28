@@ -186,6 +186,7 @@ void setRgbLed(uint8_t r, uint8_t g, uint8_t b) {
 
 // UI State
 enum Screen { 
+  SCR_STARTUP,
   SCR_STANDBY, 
   SCR_MENU, 
   SCR_SUB_STOCK, 
@@ -970,8 +971,7 @@ void setup() {
 
   startup();
 
-  curScreen = SCR_STANDBY;
-  standbyScreen();
+  curScreen = SCR_STARTUP;
   sendStat("idle");
 }
 
@@ -1004,6 +1004,17 @@ void loop() {
 
   if (curScreen != SCR_STANDBY && (diff != 0 || psh || k0)) {
     lastActionMs = millis();
+  }
+
+  if (curScreen == SCR_STARTUP) {
+    if (diff != 0 || psh || k0) {
+      curScreen = SCR_STANDBY;
+      standbyScreen();
+      delay(150);
+      return;
+    }
+    delay(20);
+    return;
   }
 
   if (curScreen == SCR_STANDBY) {
@@ -1540,28 +1551,32 @@ void startup() {
   
   delay(1500);
 
-  // --- 3D Rotating Octahedron HUD Animation ---
+  // --- 3D Rotating Octahedron HUD & All Sound Animations ---
   tft.fillScreen(C_BK);
   int cx = SW / 2;
   int cy = SH / 2 - 20;
 
   drawHudBrackets();
+  beep(150, 150);
+  delay(100);
+  beep(220, 200);
 
   long start = millis();
   float ax = 0.0, ay = 0.0;
   int prevX[6] = {0}, prevY[6] = {0};
   
-  while (millis() - start < 1200) {
+  while (millis() - start < 1500) {
     eraseOctahedron(prevX, prevY);
-    ax += 0.05;
-    ay += 0.07;
+    ax += 0.04;
+    ay += 0.06;
     drawOctahedron(ax, ay, cx, cy, C_CY, prevX, prevY);
     delay(20);
   }
 
-  for (int r = 10; r < 75; r += 15) {
+  for (int r = 10; r < 75; r += 10) {
     tft.drawCircle(cx, cy, r, C_CY);
-    delay(15);
+    beep(400 + r * 10, 8);
+    delay(12);
     tft.drawCircle(cx, cy, r, C_BK);
   }
   tft.fillScreen(C_BK);
@@ -1571,26 +1586,37 @@ void startup() {
   int tx = cx - 54;
   int ty = cy + 20;
   
-  for (int x = tx - 10; x < tx + 120; x += 8) {
+  for (int x = tx - 10; x < tx + 120; x += 6) {
     tft.drawFastVLine(x, ty - 2, 28, C_WH);
-    delay(10);
+    beep(1000 + x * 4, 8);
+    delay(12);
     drawLogoText(txt, tx, ty, 3);
     tft.drawFastVLine(x, ty - 2, 28, C_BK);
   }
+  noTone(BUZZER_PIN);
   drawLogoText(txt, tx, ty, 3);
 
   tft.setTextSize(1);
   tft.setTextColor(C_GL);
   tft.setCursor(57, ty + 30);
-  tft.print("VENDING MACHINE #5552");
+  const char* sub = "VENDING MACHINE #5552";
+  for (int i = 0; i < strlen(sub); i++) {
+    tft.print(sub[i]);
+    beep(2000, 6);
+    delay(15);
+  }
   
   int ly = SH - 25;
   tft.drawRoundRect(20, ly, SW - 40, 8, 4, C_DG);
   for (int i = 0; i < 10; i++) {
     tft.fillRect(24 + i * 20, ly + 2, 16, 4, C_CY);
-    delay(30);
+    beep(600 + i * 70, 15);
+    delay(60);
   }
-  delay(200);
+  
+  beep(880, 80);
+  delay(90);
+  beep(1100, 120);
 }
 
 void standbyScreen() {
