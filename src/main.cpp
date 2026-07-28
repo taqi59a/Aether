@@ -7,8 +7,6 @@
 #include <math.h>
 #include <Preferences.h>
 #include <WebServer.h>
-#include <DNSServer.h>
-#include <Update.h>
 #include "html_page.h"
 #include <qrcode.h>
 #include <MFRC522.h>
@@ -112,12 +110,10 @@ unsigned long lastStatusMs = 0;
 unsigned long lastActionMs = 0;
 unsigned long lastMqttRetryMs = 0;
 
-// WiFi, DNS Captive Portal & MQTT Clients
+// WiFi & MQTT Clients
 WiFiClient espClient;
 PubSubClient mqttClient(espClient);
 WebServer server(80);
-DNSServer dnsServer;
-bool apActive = false;
 bool triggerHoming = false;
 
 // GLOBAL THEME STATE (Default = Light Theme)
@@ -209,8 +205,7 @@ enum Screen {
   SCR_WIFI_PASS, 
   SCR_WIFI_CONNECTING, 
   SCR_INFO, 
-  SCR_DISPENSE,
-  SCR_ADMIN_QR
+  SCR_DISPENSE 
 };
 Screen curScreen = SCR_STANDBY;
 
@@ -246,12 +241,11 @@ const char* mLabelRfid[] = {
   "3. ADMIN SETUP"
 };
 
-const int NSUB_SYS = 4;
+const int NSUB_SYS = 3;
 const char* mLabelSys[] = {
-  "1. ADMIN AP QR",
-  "2. WIFI SETUP",
-  "3. THEME TOGGLE",
-  "4. SYSTEM INFO"
+  "1. WIFI SETUP",
+  "2. THEME TOGGLE",
+  "3. SYSTEM INFO"
 };
 
 int mSel = 0, subSel = 0, lastEnc = 0;
@@ -376,8 +370,6 @@ void drawAdminSetupScreen();
 void drawCareDispenseFrame();
 void drawCareDispenseAnimation(int cx, int cy, float frameAngle, const char* titleMsg, const char* subMsg);
 void runDispenseWorkflow(const char* cardUid);
-void drawAdminQrScreen();
-void startAdminSoftAP();
 
 // ================================================
 //  TOF050C / VL6180X TOF STOCK DISTANCE SENSOR
@@ -1080,66 +1072,6 @@ void setup() {
     json += "]}";
     server.send(200, "application/json", json);
   });
-  // Captive Portal Redirect Endpoints for Smartphone Auto-Popup
-  server.on("/generate_204", []() { server.sendHeader("Location", "http://192.168.4.1/"); server.send(302, "text/plain", ""); });
-  server.on("/redirect", []() { server.sendHeader("Location", "http://192.168.4.1/"); server.send(302, "text/plain", ""); });
-  server.on("/hotspot-detect.html", []() { server.sendHeader("Location", "http://192.168.4.1/"); server.send(302, "text/plain", ""); });
-
-  // Over-The-Air (OTA) Firmware Upload Page
-  server.on("/update", HTTP_GET, []() {
-    sendCorsHeaders();
-    String html = R"rawhtml(
-      <!DOCTYPE html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
-      <title>Aether OTA Update</title>
-      <style>body{font-family:sans-serif;background:#0d1322;color:#fff;display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;}
-      .card{background:#1e293b;padding:24px;border-radius:16px;box-shadow:0 10px 25px rgba(0,0,0,0.5);width:90%;max-width:400px;text-align:center;}
-      h2{color:#00f2fe;margin-bottom:8px;}p{color:#94a3b8;font-size:14px;}
-      input[type=file]{margin:16px 0;width:100%;padding:10px;background:#0f172a;border:1px solid #334155;color:#fff;border-radius:8px;}
-      button{background:linear-gradient(135deg,#00f2fe,#4facfe);border:none;color:#000;font-weight:bold;padding:12px 24px;border-radius:10px;font-size:16px;cursor:pointer;width:100%;}
-      </style></head><body>
-      <div class="card">
-        <h2>⚡ Aether OTA Update</h2>
-        <p>Select firmware binary (.bin) file to flash over internet / Wi-Fi</p>
-        <form method="POST" action="/update" enctype="multipart/form-data">
-          <input type="file" name="update" accept=".bin" required>
-          <button type="submit">Flash Firmware Now</button>
-        </form>
-      </div></body></html>
-    )rawhtml";
-    server.send(200, "text/html", html);
-  });
-
-  // OTA Firmware Binary Processor (Internet / Web Flash)
-  server.on("/update", HTTP_POST, []() {
-    sendCorsHeaders();
-    bool ok = !Update.hasError();
-    String res = ok ? "{\"status\":\"success\",\"msg\":\"Firmware updated! Rebooting...\"}" 
-                    : "{\"status\":\"error\",\"msg\":\"Update failed!\"}";
-    server.send(ok ? 200 : 500, "application/json", res);
-    if (ok) {
-      delay(1000);
-      ESP.restart();
-    }
-  }, []() {
-    HTTPUpload& upload = server.upload();
-    if (upload.status == UPLOAD_FILE_START) {
-      Serial.printf("Update: %s\n", upload.filename.c_str());
-      if (!Update.begin(UPDATE_SIZE_UNKNOWN)) {
-        Update.printError(Serial);
-      }
-    } else if (upload.status == UPLOAD_FILE_WRITE) {
-      if (Update.write(upload.buf, upload.currentSize) != upload.currentSize) {
-        Update.printError(Serial);
-      }
-    } else if (upload.status == UPLOAD_FILE_END) {
-      if (Update.end(true)) {
-        Serial.printf("Update Success: %u bytes\n", upload.totalSize);
-      } else {
-        Update.printError(Serial);
-      }
-    }
-  });
-
   server.begin();
 
   pinMode(ENC_A, INPUT_PULLUP);
@@ -1166,10 +1098,6 @@ void loop() {
   handleSerial();
   server.handleClient();
   handleRFID();
-
-  if (apActive) {
-    dnsServer.processNextRequest();
-  }
 
   if (WiFi.status() == WL_CONNECTED) {
     if (!mqttClient.connected()) {
@@ -1400,15 +1328,14 @@ void loop() {
     if (psh) {
       lastActionMs = millis();
       delay(100);
-      if (subSel == 0) { curScreen = SCR_ADMIN_QR; drawAdminQrScreen(); }
-      else if (subSel == 1) { curScreen = SCR_WIFI; wifiScreen(); }
-      else if (subSel == 2) {
+      if (subSel == 0) { curScreen = SCR_WIFI; wifiScreen(); }
+      else if (subSel == 1) {
         isDarkTheme = !isDarkTheme;
-        mLabelSys[2] = isDarkTheme ? "3. Theme: DARK" : "3. Theme: LIGHT";
+        mLabelSys[1] = isDarkTheme ? "Theme: DARK" : "Theme: LIGHT";
         saveThemePreference();
         drawSubMenu("NETWORK & SYSTEM", mLabelSys, NSUB_SYS, subSel);
       }
-      else if (subSel == 3) { curScreen = SCR_INFO; infoScreen(); }
+      else if (subSel == 2) { curScreen = SCR_INFO; infoScreen(); }
     }
   }
   else if (curScreen == SCR_ACTUATOR) {
@@ -2846,85 +2773,6 @@ void drawI2cDiagData() {
   tft.fillRect(valX, cardY + 98, valW, 10, C_BK);
   tft.setCursor(valX, cardY + 100);
   tft.printf("%-10d", emptyStockDepthMm);
-}
-
-// -------------------------------------------------------------
-//  SPECIALIZED ADMIN ACCESS POINT QR SCREEN & CAPTIVE PORTAL
-// -------------------------------------------------------------
-void startAdminSoftAP() {
-  if (!apActive) {
-    WiFi.softAP("Aether-Admin-5552", "");
-    dnsServer.start(53, "*", WiFi.softAPIP());
-    apActive = true;
-  }
-}
-
-void drawAdminQrScreen() {
-  curScreen = SCR_ADMIN_QR;
-  startAdminSoftAP();
-
-  uint16_t bg = getBgColor();
-  tft.fillScreen(bg);
-
-  // Header Bar
-  tft.fillRect(0, 0, SW, HDR_H, isDarkTheme ? C_BK : 0xE71C);
-  tft.drawFastHLine(0, HDR_H, SW, C_CY);
-  tft.setTextSize(2);
-  tft.setTextColor(C_CY);
-  tft.setCursor(20, 12);
-  tft.print("ADMIN AP QR");
-
-  // Generate Wi-Fi Quick-Connect QR Code (WIFI:S:Aether-Admin-5552;T:nopass;;)
-  const char* wifiQrStr = "WIFI:S:Aether-Admin-5552;T:nopass;;";
-  QRCode qrcode;
-  uint8_t qrcodeData[qrcode_getBufferSize(3)];
-  qrcode_initText(&qrcode, qrcodeData, 3, 0, wifiQrStr);
-
-  int scale = 4;
-  int qrSize = qrcode.size * scale;
-  int qrX = (SW - qrSize) / 2;
-  int qrY = 48;
-
-  // Outer border box around QR Code
-  tft.fillRect(qrX - 4, qrY - 4, qrSize + 8, qrSize + 8, C_WH);
-
-  for (uint8_t y = 0; y < qrcode.size; y++) {
-    for (uint8_t x = 0; x < qrcode.size; x++) {
-      if (qrcode_getModule(&qrcode, x, y)) {
-        tft.fillRect(qrX + x * scale, qrY + y * scale, scale, scale, C_BK);
-      } else {
-        tft.fillRect(qrX + x * scale, qrY + y * scale, scale, scale, C_WH);
-      }
-    }
-  }
-
-  // Network Credentials Banner
-  tft.setTextSize(1);
-  tft.setTextColor(getAccentGold());
-  tft.setCursor(14, qrY + qrSize + 12);
-  tft.print("SSID: Aether-Admin-5552");
-
-  tft.setCursor(14, qrY + qrSize + 24);
-  tft.print("Web Portal: 192.168.4.1");
-
-  // Step-by-Step Instructions
-  tft.setTextColor(getTextMain());
-  tft.setCursor(14, qrY + qrSize + 40);
-  tft.print("1. Scan QR to Auto-Connect Wi-Fi");
-
-  tft.setCursor(14, qrY + qrSize + 54);
-  tft.print("2. Web Dashboard Auto-Opens");
-
-  tft.setTextColor(C_CY);
-  tft.setCursor(14, qrY + qrSize + 68);
-  tft.print("3. Full Config & Internet OTA Update");
-
-  // Footer Bar
-  tft.fillRect(0, SH - FTR_H, SW, FTR_H, getFooterBg());
-  tft.setTextColor(isDarkTheme ? C_DG : 0x4208);
-  tft.setTextSize(1);
-  tft.setCursor(10, SH - 16);
-  tft.print("Press K0 to Exit Admin AP");
 }
 
 void drawAdminSetupScreen() {
