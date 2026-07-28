@@ -211,41 +211,41 @@ Screen curScreen = SCR_STANDBY;
 
 unsigned long lastK0PressMs = 0; // K0 Double-click Kill-Switch detection
 
-// Categorized Main Menu (Punchy labels for Size 2 font)
+// Categorized Main Menu (Short punchy labels for Size 2 font - NO WRAPPING!)
 const int NMENU = 4;
 const char* mLabel[] = {
-  "1. Stock Sensor",
-  "2. Motor Control",
-  "3. RFID & Admin",
-  "4. Network & Sys"
+  "1. STOCK SENSOR",
+  "2. MOTOR CTRL",
+  "3. RFID & ADMIN",
+  "4. SYS & WIFI"
 };
 
 // Submenu labels
 const int NSUB_STOCK = 2;
 const char* mLabelStock[] = {
-  "1. Live Stock",
-  "2. ToF Diag"
+  "1. LIVE STOCK",
+  "2. TOF DIAG"
 };
 
 const int NSUB_MOTOR = 3;
 const char* mLabelMotor[] = {
-  "1. Manual Move",
-  "2. Limit Calib",
-  "3. Motor Sweep"
+  "1. MANUAL MOVE",
+  "2. LIMIT CALIB",
+  "3. MOTOR SWEEP"
 };
 
 const int NSUB_RFID = 3;
 const char* mLabelRfid[] = {
-  "1. RFID Test",
-  "2. Card History",
-  "3. Admin Setup"
+  "1. RFID TEST",
+  "2. CARD HISTORY",
+  "3. ADMIN SETUP"
 };
 
 const int NSUB_SYS = 3;
 const char* mLabelSys[] = {
-  "1. WiFi Setup",
-  "2. Theme Toggle",
-  "3. System Info"
+  "1. WIFI SETUP",
+  "2. THEME TOGGLE",
+  "3. SYSTEM INFO"
 };
 
 int mSel = 0, subSel = 0, lastEnc = 0;
@@ -902,19 +902,17 @@ void handleRFID() {
 
   String cleanScanned = cleanUid(cardUid);
 
-  // 1. If inside Admin Setup screen -> Process registration if active, else just refresh screen
+  // 1. If inside Admin Setup screen -> IMMEDIATELY SAVE ANY TAPPED CARD AS ADMIN CARD!
   if (curScreen == SCR_ADMIN_SETUP) {
-    if (adminRegisterMode) {
-      adminRegisterMode = false;
-      if (addAdminCardToNvs(cleanScanned)) {
-        adminStatusBanner = "[+] SAVED: " + cleanScanned;
-        adminBannerMs = millis();
-        beep(1200, 70); delay(80); beep(1600, 70); delay(80); beep(2000, 150);
-      } else {
-        adminStatusBanner = "[!] CARD FULL OR ALREADY ADDED";
-        adminBannerMs = millis();
-        beep(800, 150);
-      }
+    adminRegisterMode = false;
+    if (addAdminCardToNvs(cleanScanned)) {
+      adminStatusBanner = "[+] SAVED: " + cleanScanned;
+      adminBannerMs = millis();
+      beep(1200, 70); delay(80); beep(1600, 70); delay(80); beep(2000, 150);
+    } else {
+      adminStatusBanner = "[!] CARD ALREADY IN LIST";
+      adminBannerMs = millis();
+      beep(800, 150);
     }
     drawAdminSetupScreen();
     return; // NEVER DISPENSE IN ADMIN SETUP!
@@ -1791,25 +1789,26 @@ void drawSubMenu(const char* title, const char** labels, int count, int sel) {
   tft.drawFastHLine(0, HDR_H, SW, getTextMain());
   tft.setTextSize(2);
   tft.setTextColor(getTextMain());
-  tft.setCursor(14, 12);
+  tft.setCursor(12, 12);
   tft.print(title);
 
-  // Live WiFi & Admin Session Badge in Header
-  tft.setTextSize(1);
+  // Ultra-Visible High-Contrast WiFi & Admin Badges in Header
   if (adminSessionActive) {
-    tft.setTextColor(C_GL, isDarkTheme ? C_BK : 0xE71C);
-    tft.setCursor(SW - 110, 16);
-    tft.print("[ADMIN]");
+    tft.fillRoundRect(SW - 150, 10, 56, 24, 4, C_GL);
+    tft.setTextSize(1);
+    tft.setTextColor(C_BK);
+    tft.setCursor(SW - 144, 18);
+    tft.print("ADMIN");
   }
-  if (WiFi.status() == WL_CONNECTED) {
-    tft.setTextColor(C_GN, isDarkTheme ? C_BK : 0xE71C);
-    tft.setCursor(SW - 55, 16);
-    tft.print("WiFi: OK");
-  } else {
-    tft.setTextColor(isDarkTheme ? C_GR : C_RD, isDarkTheme ? C_BK : 0xE71C);
-    tft.setCursor(SW - 55, 16);
-    tft.print("WiFi: OFF");
-  }
+
+  bool isWifiOk = (WiFi.status() == WL_CONNECTED);
+  uint16_t wifiBadgeCol = isWifiOk ? C_GN : C_RD;
+  tft.fillRoundRect(SW - 88, 10, 78, 24, 4, wifiBadgeCol);
+  tft.drawRoundRect(SW - 88, 10, 78, 24, 4, C_WH);
+  tft.setTextSize(1);
+  tft.setTextColor(isWifiOk ? C_BK : C_WH);
+  tft.setCursor(SW - 80, 18);
+  tft.print(isWifiOk ? "WIFI: ON" : "WIFI: OFF");
 
   for (int i = 0; i < count; i++) {
     drawSubMenuItem(labels, i, i == sel);
@@ -1825,9 +1824,10 @@ void drawSubMenuItem(const char** labels, int idx, bool sel) {
   tft.fillRect(10, y, SW - 20, ITEM_H, boxBg);
   tft.drawRect(10, y, SW - 20, ITEM_H, getTextMain());
 
+  tft.setTextWrap(false); // Disable line wrap to prevent text clipping
   tft.setTextSize(2); // LARGE, BOLD, ULTRA-READABLE MENU TEXT!
-  tft.setTextColor(textFg, boxBg);
-  tft.setCursor(20, y + 13);
+  tft.setTextColor(textFg); // High-contrast crisp text
+  tft.setCursor(18, y + 13);
   tft.print(labels[idx]);
 }
 
