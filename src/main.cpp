@@ -971,7 +971,8 @@ void setup() {
 
   startup();
 
-  curScreen = SCR_STARTUP;
+  curScreen = SCR_STANDBY;
+  standbyScreen();
   sendStat("idle");
 }
 
@@ -1006,16 +1007,7 @@ void loop() {
     lastActionMs = millis();
   }
 
-  if (curScreen == SCR_STARTUP) {
-    if (diff != 0 || psh || k0) {
-      curScreen = SCR_STANDBY;
-      standbyScreen();
-      delay(150);
-      return;
-    }
-    delay(20);
-    return;
-  }
+
 
   if (curScreen == SCR_STANDBY) {
     if (pwStep > 0 && millis() - pwLastStepMs > 4000) {
