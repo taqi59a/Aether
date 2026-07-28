@@ -1000,7 +1000,7 @@ void loop() {
   if (psh) beep(2000, 10);
   if (k0)  beep(1600, 10);
 
-  if (curScreen != SCR_STANDBY && ((abs(diff) >= 2) || psh || k0)) {
+  if (curScreen != SCR_STANDBY && (diff != 0 || psh || k0)) {
     lastActionMs = millis();
   }
 
@@ -1199,6 +1199,11 @@ void loop() {
     if (psh) { homing(); lastEnc = encCount; }
   }
   else if (curScreen == SCR_STOCK) {
+    static unsigned long lastStockRefreshMs = 0;
+    if (millis() - lastStockRefreshMs > 200) {
+      lastStockRefreshMs = millis();
+      drawStockScreen();
+    }
     if (abs(diff) >= 2) {
       int clicks = diff / 2;
       lastEnc = encCount;
