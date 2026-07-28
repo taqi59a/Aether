@@ -357,6 +357,8 @@ void drawStockData();
 void drawI2cDiagScreen();
 void drawI2cDiagData();
 void drawSubMenu(const char* title, const char** labels, int count, int sel);
+void drawSubMenuItem(const char** labels, int idx, bool sel);
+void updateSubMenuSelection(const char** labels, int oldSel, int newSel);
 void playStartupMelody();
 bool checkK0KillSwitch();
 void drawRfidScreen();
@@ -1106,10 +1108,11 @@ void loop() {
     if (abs(diff) >= 2) {
       lastActionMs = millis();
       lastEnc = encCount;
+      int oldSel = mSel;
       mSel += (diff > 0) ? 1 : -1;
       if (mSel < 0) mSel = NMENU - 1;
       if (mSel >= NMENU) mSel = 0;
-      menuFull();
+      updateSubMenuSelection(mLabel, oldSel, mSel);
     }
     if (psh) {
       lastActionMs = millis();
@@ -1127,10 +1130,11 @@ void loop() {
     if (abs(diff) >= 2) {
       lastActionMs = millis();
       lastEnc = encCount;
+      int oldSel = subSel;
       subSel += (diff > 0) ? 1 : -1;
       if (subSel < 0) subSel = NSUB_STOCK - 1;
       if (subSel >= NSUB_STOCK) subSel = 0;
-      drawSubMenu("STOCK & SENSOR", mLabelStock, NSUB_STOCK, subSel);
+      updateSubMenuSelection(mLabelStock, oldSel, subSel);
     }
     if (psh) {
       lastActionMs = millis();
@@ -1143,10 +1147,11 @@ void loop() {
     if (abs(diff) >= 2) {
       lastActionMs = millis();
       lastEnc = encCount;
+      int oldSel = subSel;
       subSel += (diff > 0) ? 1 : -1;
       if (subSel < 0) subSel = NSUB_MOTOR - 1;
       if (subSel >= NSUB_MOTOR) subSel = 0;
-      drawSubMenu("MOTOR CONTROL", mLabelMotor, NSUB_MOTOR, subSel);
+      updateSubMenuSelection(mLabelMotor, oldSel, subSel);
     }
     if (psh) {
       lastActionMs = millis();
@@ -1160,10 +1165,11 @@ void loop() {
     if (abs(diff) >= 2) {
       lastActionMs = millis();
       lastEnc = encCount;
+      int oldSel = subSel;
       subSel += (diff > 0) ? 1 : -1;
       if (subSel < 0) subSel = NSUB_RFID - 1;
       if (subSel >= NSUB_RFID) subSel = 0;
-      drawSubMenu("RFID & CARD DB", mLabelRfid, NSUB_RFID, subSel);
+      updateSubMenuSelection(mLabelRfid, oldSel, subSel);
     }
     if (psh) {
       lastActionMs = millis();
@@ -1176,10 +1182,11 @@ void loop() {
     if (abs(diff) >= 2) {
       lastActionMs = millis();
       lastEnc = encCount;
+      int oldSel = subSel;
       subSel += (diff > 0) ? 1 : -1;
       if (subSel < 0) subSel = NSUB_SYS - 1;
       if (subSel >= NSUB_SYS) subSel = 0;
-      drawSubMenu("NETWORK & SYSTEM", mLabelSys, NSUB_SYS, subSel);
+      updateSubMenuSelection(mLabelSys, oldSel, subSel);
     }
     if (psh) {
       lastActionMs = millis();
@@ -1647,20 +1654,42 @@ void drawSubMenu(const char* title, const char** labels, int count, int sel) {
   tft.setCursor(14, 12);
   tft.print(title);
 
+  // Live WiFi Connection Status Badge in Header
+  tft.setTextSize(1);
+  if (WiFi.status() == WL_CONNECTED) {
+    tft.setTextColor(C_GN, isDarkTheme ? C_BK : 0xE71C);
+    tft.setCursor(SW - 65, 16);
+    tft.print("WiFi: OK");
+  } else {
+    tft.setTextColor(isDarkTheme ? C_GR : C_RD, isDarkTheme ? C_BK : 0xE71C);
+    tft.setCursor(SW - 65, 16);
+    tft.print("WiFi: OFF");
+  }
+
   for (int i = 0; i < count; i++) {
-    int y = ITEM_Y0 + i * ITEM_SP;
-    bool isSel = (i == sel);
+    drawSubMenuItem(labels, i, i == sel);
+  }
+}
 
-    uint16_t boxBg = getCardBg(isSel);
-    uint16_t textFg = getCardFg(isSel);
+void drawSubMenuItem(const char** labels, int idx, bool sel) {
+  int y = ITEM_Y0 + idx * ITEM_SP;
+  uint16_t boxBg = getCardBg(sel);
+  uint16_t textFg = getCardFg(sel);
 
-    tft.fillRect(10, y, SW - 20, ITEM_H, boxBg);
-    tft.drawRect(10, y, SW - 20, ITEM_H, getTextMain());
+  // In-place box update with ZERO full-screen flicker!
+  tft.fillRect(10, y, SW - 20, ITEM_H, boxBg);
+  tft.drawRect(10, y, SW - 20, ITEM_H, getTextMain());
 
-    tft.setTextSize(1);
-    tft.setTextColor(textFg, boxBg);
-    tft.setCursor(24, y + 10);
-    tft.print(labels[i]);
+  tft.setTextSize(1);
+  tft.setTextColor(textFg, boxBg);
+  tft.setCursor(24, y + 10);
+  tft.print(labels[idx]);
+}
+
+void updateSubMenuSelection(const char** labels, int oldSel, int newSel) {
+  if (oldSel != newSel) {
+    drawSubMenuItem(labels, oldSel, false);
+    drawSubMenuItem(labels, newSel, true);
   }
 }
 
