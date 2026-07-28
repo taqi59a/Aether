@@ -2426,88 +2426,28 @@ void runDispenseWorkflow(const char* cardUid) {
   // Phase 1: CARD AUTHENTICATION
   setRgbLed(0, 255, 0); // Green LED ON
   beep(1800, 50); delay(60); beep(2400, 80);
-  
-  float ang = 0.0;
-  for (int i = 0; i <= 15; i++) {
-    ang += 0.25;
-    drawCareDispenseAnimation(cx, cy, ang, "CARD VERIFIED!", "Welcome! ❤️");
-    delay(40);
-  }
+  drawCareDispenseAnimation(cx, cy, 0.0, "CARD VERIFIED!", "Welcome! ❤️");
+  delay(300);
 
-  // Phase 2: MOTOR EXTENDING (DISPENSING WITH 800US ACCELERATION RAMP)
+  // Phase 2: MOTOR EXTENDING FORWARD (100% SILKY SMOOTH VIA UNIFIED MOTOR HANDLER)
   setRgbLed(0, 255, 0);
   beep(2000, 40); delay(50); beep(2200, 40);
-  
-  sendStat("moving");
-  motorBusy = true;
-  stopNow = false;
-  
-  int startPos = motorPos;
-  int destPos = (maxLimitMm * totalSteps) / maxPhysicalMm;
-  int totalDist = abs(destPos - startPos);
+  drawCareDispenseAnimation(cx, cy, 0.8, "DISPENSING CARE...", "Just a moment for you!");
 
-  for (int stepIdx = 0; stepIdx < totalDist; stepIdx++) {
-    if (stopNow) break;
-    motorPos = (destPos > startPos) ? (startPos + stepIdx) : (startPos - stepIdx);
-    doStep(motorPos);
-    
-    // Smooth linear acceleration ramp down to 800us high speed
-    int dly = startSpeed;
-    if (stepIdx < rampSteps) {
-      dly = startSpeed - ((startSpeed - maxSpeed) * stepIdx / rampSteps);
-    } else if ((totalDist - stepIdx) < rampSteps) {
-      dly = maxSpeed + ((startSpeed - maxSpeed) * (rampSteps - (totalDist - stepIdx)) / rampSteps);
-    } else {
-      dly = maxSpeed;
-    }
-    
-    if (stepIdx % 25 == 0) {
-      ang += 0.2;
-      drawCareDispenseAnimation(cx, cy, ang, "DISPENSING CARE...", "Just a moment for you!");
-    }
-    delayMicroseconds(dly);
-  }
+  // Execute forward dispense movement with ZERO timing spikes!
+  executeGlobalMotorMove(maxLimitMm);
 
-  // Phase 3: ITEM READY & MOTOR RETRACTING (WITH 800US RAMP)
+  // Phase 3: ITEM READY & MOTOR RETRACTING (100% SILKY SMOOTH VIA UNIFIED MOTOR HANDLER)
   setRgbLed(255, 0, 0); // Red LED ON for retracting & item pickup
   beep(1200, 80); delay(90); beep(1800, 80); delay(90); beep(2400, 150);
+  drawCareDispenseAnimation(cx, cy, 1.6, "PLEASE TAKE ITEM", "Prepared with Care ❤️");
 
-  int retractStartPos = motorPos;
-  int retractTotal = retractStartPos;
-
-  for (int stepIdx = 0; stepIdx < retractTotal; stepIdx++) {
-    if (stopNow) break;
-    motorPos = retractStartPos - stepIdx;
-    doStep(motorPos);
-    
-    int dly = startSpeed;
-    if (stepIdx < rampSteps) {
-      dly = startSpeed - ((startSpeed - maxSpeed) * stepIdx / rampSteps);
-    } else if ((retractTotal - stepIdx) < rampSteps) {
-      dly = maxSpeed + ((startSpeed - maxSpeed) * (rampSteps - (retractTotal - stepIdx)) / rampSteps);
-    } else {
-      dly = maxSpeed;
-    }
-
-    if (stepIdx % 25 == 0) {
-      ang += 0.2;
-      drawCareDispenseAnimation(cx, cy, ang, "PLEASE TAKE ITEM", "Prepared with Care ❤️");
-    }
-    delayMicroseconds(dly);
-  }
-
-  stopCoils();
-  motorPos = 0;
-  targetPos = 0;
-  motorBusy = false;
-  sendStat("idle");
+  // Execute reverse retract movement with ZERO timing spikes!
+  executeGlobalMotorMove(0);
 
   // Phase 4: DISPENSE COMPLETE & SUCCESS CHIME
-  for (int f = 0; f < 12; f++) {
-    ang += 0.3;
-    drawCareDispenseAnimation(cx, cy, ang, "HAVE A GREAT DAY!", "You are wonderful! ✨");
-    delay(50);
-  }
+  drawCareDispenseAnimation(cx, cy, 2.4, "HAVE A GREAT DAY!", "You are wonderful! ✨");
+  delay(800);
 
   setRgbLed(0, 0, 0); // LED OFF
   curScreen = SCR_STANDBY;
