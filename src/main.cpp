@@ -367,8 +367,8 @@ void drawRfidScreen();
 void drawCardLogsScreen();
 void drawCardDetailScreen(int idx);
 void drawAdminSetupScreen();
-void drawQuantumDispenseFrame(int cx, int cy);
-void drawQuantumDispenseHud(int cx, int cy, float angle, const char* statusMsg, const char* detailMsg, int progressPct);
+void drawCareDispenseFrame();
+void drawCareDispenseAnimation(int cx, int cy, float frameAngle, const char* titleMsg, const char* subMsg);
 void runDispenseWorkflow(const char* cardUid);
 
 // ================================================
@@ -2345,134 +2345,98 @@ void drawRfidScreen() {
 }
 
 // -------------------------------------------------------------
-//  QUANTUM TELEMETRY HUD DISPENSE ANIMATION (100% ZERO FLICKER!)
+//  BLOOMING FLOWER & PULSING HEART CARE ANIMATION (ZERO FLICKER!)
 // -------------------------------------------------------------
-static int prevSatX[4] = {0};
-static int prevSatY[4] = {0};
-
-void drawQuantumDispenseFrame(int cx, int cy) {
-  uint16_t bg = C_BK;
+void drawCareDispenseFrame() {
+  uint16_t bg = isDarkTheme ? C_BK : C_WH;
   tft.fillScreen(bg);
 
-  // Header Bar
-  tft.fillRect(0, 0, SW, HDR_H, C_BK);
-  tft.drawFastHLine(0, HDR_H, SW, C_CY);
+  // Soft Vibrant Header Bar ("AETHER CARE")
+  uint16_t hdrCol = isDarkTheme ? tft.color565(45, 10, 35) : tft.color565(255, 230, 242);
+  tft.fillRect(0, 0, SW, HDR_H, hdrCol);
+  tft.drawFastHLine(0, HDR_H, SW, C_MG);
   tft.setTextSize(2);
-  tft.setTextColor(C_CY);
-  tft.setCursor(24, 12);
-  tft.print("AETHER DISPENSE");
+  tft.setTextColor(C_MG);
+  tft.setCursor(50, 12);
+  tft.print("AETHER CARE");
 
   // Footer Bar
-  tft.fillRect(0, SH - FTR_H, SW, FTR_H, 0x1082);
-  tft.setTextColor(C_WH);
+  tft.fillRect(0, SH - FTR_H, SW, FTR_H, getFooterBg());
+  tft.setTextColor(isDarkTheme ? C_DG : 0x4208);
   tft.setTextSize(1);
   tft.setCursor(10, SH - 16);
-  tft.print("Quantum Telemetry Servo System");
+  tft.print("Sanitary Vending Care  ❤️");
 
-  // Outer HUD Card Area & Corner Crosshairs
-  tft.drawRect(10, 48, SW - 20, 168, C_CY);
-  int len = 8;
-  tft.drawFastHLine(14, 52, len, C_WH);
-  tft.drawFastVLine(14, 52, len, C_WH);
-  tft.drawFastHLine(SW - 14 - len, 52, len, C_WH);
-  tft.drawFastVLine(SW - 14, 52, len, C_WH);
-  tft.drawFastHLine(14, 212, len, C_WH);
-  tft.drawFastVLine(14, 212 - len, len, C_WH);
-  tft.drawFastHLine(SW - 14 - len, 212, len, C_WH);
-  tft.drawFastVLine(SW - 14, 212 - len, len, C_WH);
-
-  // Concentric Static Core Rings
-  tft.drawCircle(cx, cy, 48, C_DG);
-  tft.drawCircle(cx, cy, 34, C_CY);
-  tft.drawCircle(cx, cy, 20, C_PU);
-
-  // Reset satellite points
-  for (int i = 0; i < 4; i++) {
-    prevSatX[i] = 0;
-    prevSatY[i] = 0;
-  }
+  // Outer Card Border
+  tft.drawRoundRect(10, 48, SW - 20, 168, 8, isDarkTheme ? C_DG : 0xE71C);
 }
 
-void drawQuantumDispenseHud(int cx, int cy, float angle, const char* statusMsg, const char* detailMsg, int progressPct) {
-  uint16_t bg = C_BK; // High-tech deep dark background
+void drawCareDispenseAnimation(int cx, int cy, float frameAngle, const char* titleMsg, const char* subMsg) {
+  uint16_t bg = isDarkTheme ? C_BK : C_WH;
 
-  // 1. Erase ONLY previous 4 satellite dots in-place (ZERO FLICKER!)
-  for (int i = 0; i < 4; i++) {
-    if (prevSatX[i] != 0 && prevSatY[i] != 0) {
-      tft.fillCircle(prevSatX[i], prevSatY[i], 4, bg);
-    }
+  // 1. Clear inner animation circle area smoothly
+  tft.fillCircle(cx, cy, 38, bg);
+
+  // 2. Draw 8 Blooming Flower Petals
+  float bloomRadius = 26.0 + 4.0 * sin(frameAngle * 2.0);
+  uint16_t petalColor = isDarkTheme ? tft.color565(255, 140, 185) : tft.color565(255, 160, 200);
+
+  for (int i = 0; i < 8; i++) {
+    float a = frameAngle + (i * M_PI / 4.0);
+    int px = cx + (int)(bloomRadius * cos(a));
+    int py = cy + (int)(bloomRadius * sin(a));
+    tft.fillCircle(px, py, 11, petalColor);
+    tft.drawCircle(px, py, 11, C_MG);
   }
 
-  // Re-draw middle ring (in case erased dots overlapped it)
-  tft.drawCircle(cx, cy, 34, C_CY);
+  // 3. Center Glowing Flower Core
+  tft.fillCircle(cx, cy, 17, 0xFFE0); // Warm Golden Yellow
+  tft.drawCircle(cx, cy, 17, C_WH);
 
-  // 2. Draw new 4 Rotating Orbital Plasma Satellites
-  for (int i = 0; i < 4; i++) {
-    float a = angle + (i * M_PI_2);
-    int px = cx + (int)(34.0 * cos(a));
-    int py = cy + (int)(34.0 * sin(a));
-    prevSatX[i] = px;
-    prevSatY[i] = py;
-    tft.fillCircle(px, py, 4, (i % 2 == 0) ? C_WH : C_CY);
-  }
+  // 4. Pulsing Center Heart
+  int heartScale = (sin(frameAngle * 3.0) > 0) ? 1 : 0;
+  int hx = cx;
+  int hy = cy - 2;
+  tft.fillCircle(hx - 4, hy - 3, 4 + heartScale, C_RD);
+  tft.fillCircle(hx + 4, hy - 3, 4 + heartScale, C_RD);
+  tft.fillTriangle(hx - 8 - heartScale, hy - 1, hx + 8 + heartScale, hy - 1, hx, hy + 7 + heartScale, C_RD);
 
-  // 3. Live Circular Progress Ring (Ticked Vector Arc in-place update)
-  int numTicks = 24;
-  int activeTicks = (progressPct * numTicks) / 100;
-  for (int i = 0; i < numTicks; i++) {
-    float ta = (i * 2.0 * M_PI / numTicks) - M_PI_2;
-    int tx1 = cx + (int)(46.0 * cos(ta));
-    int ty1 = cy + (int)(46.0 * sin(ta));
-    int tx2 = cx + (int)(52.0 * cos(ta));
-    int ty2 = cy + (int)(52.0 * sin(ta));
-    uint16_t tickCol = (i < activeTicks) ? C_GN : C_DG;
-    tft.drawLine(tx1, ty1, tx2, ty2, tickCol);
-  }
-
-  // 4. In-Center Live Readout (In-place overwrite)
-  tft.fillRect(cx - 30, cy - 10, 60, 20, bg);
+  // 5. Overwrite Centered Title Message (Text Size 2, Large & Bold!)
+  tft.fillRect(14, cy + 42, SW - 28, 20, bg);
   tft.setTextSize(2);
-  tft.setTextColor(C_WH, bg);
-  char pctStr[12];
-  snprintf(pctStr, sizeof(pctStr), "%d%%", progressPct);
-  int pLen = strlen(pctStr);
-  tft.setCursor(cx - (pLen * 6), cy - 6);
-  tft.print(pctStr);
+  tft.setTextColor(C_MG, bg);
+  int tLen = strlen(titleMsg);
+  int tx = max(14, (SW - tLen * 12) / 2);
+  tft.setCursor(tx, cy + 44);
+  tft.print(titleMsg);
 
-  // 5. Status Message Banner (In-place overwrite)
-  tft.fillRect(14, cy + 56, SW - 28, 14, bg);
+  // 6. Overwrite Centered Subtitle Message (Text Size 1, Soft & Friendly)
+  tft.fillRect(14, cy + 66, SW - 28, 14, bg);
   tft.setTextSize(1);
-  tft.setTextColor(C_GL, bg);
-  int stLen = strlen(statusMsg);
-  tft.setCursor(max(14, cx - (stLen * 3)), cy + 58);
-  tft.print(statusMsg);
-
-  // 6. Detail Message Subtitle (In-place overwrite)
-  tft.fillRect(14, cy + 72, SW - 28, 14, bg);
-  tft.setTextColor(C_CY, bg);
-  int dtLen = strlen(detailMsg);
-  tft.setCursor(max(14, cx - (dtLen * 3)), cy + 74);
-  tft.print(detailMsg);
+  tft.setTextColor(getTextMain(), bg);
+  int sLen = strlen(subMsg);
+  int sx = max(14, (SW - sLen * 6) / 2);
+  tft.setCursor(sx, cy + 68);
+  tft.print(subMsg);
 }
 
 void runDispenseWorkflow(const char* cardUid) {
   curScreen = SCR_DISPENSE;
   int cx = SW / 2;
-  int cy = 118;
+  int cy = 110;
 
-  // Draw static HUD frame ONCE on entry
-  drawQuantumDispenseFrame(cx, cy);
+  // Draw static Care frame ONCE on entry
+  drawCareDispenseFrame();
 
   // Phase 1: CARD AUTHENTICATION
   setRgbLed(0, 255, 0); // Green LED ON
   beep(1800, 50); delay(60); beep(2400, 80);
-  String uidStr = "UID: " + cleanUid(cardUid);
   
   float ang = 0.0;
-  for (int i = 0; i <= 20; i += 2) {
-    ang += 0.3;
-    drawQuantumDispenseHud(cx, cy, ang, "CARD AUTHENTICATED", uidStr.c_str(), i);
-    delay(40);
+  for (int i = 0; i <= 15; i++) {
+    ang += 0.25;
+    drawCareDispenseAnimation(cx, cy, ang, "CARD VERIFIED!", "Welcome! ❤️");
+    delay(50);
   }
 
   // Phase 2: MOTOR EXTENDING (DISPENSING)
@@ -2492,15 +2456,10 @@ void runDispenseWorkflow(const char* cardUid) {
     motorPos = (destPos > startPos) ? (startPos + stepIdx) : (startPos - stepIdx);
     doStep(motorPos);
     
-    // Smooth pixel update & particle rotation every 25 motor steps
+    // Smooth pixel update & flower bloom rotation every 25 motor steps
     if (stepIdx % 25 == 0) {
-      ang += 0.25;
-      int pct = map(motorPos, 0, destPos, 20, 70);
-      pct = constrain(pct, 20, 70);
-      char mmBuf[32];
-      int curMm = map(motorPos, 0, totalSteps, 0, 80);
-      snprintf(mmBuf, sizeof(mmBuf), "EXTENDING: %d mm", curMm);
-      drawQuantumDispenseHud(cx, cy, ang, "MOTOR EXTENDING...", mmBuf, pct);
+      ang += 0.2;
+      drawCareDispenseAnimation(cx, cy, ang, "DISPENSING CARE...", "Just a moment for you!");
     }
     delayMicroseconds(maxSpeed + 200);
   }
@@ -2518,13 +2477,8 @@ void runDispenseWorkflow(const char* cardUid) {
     doStep(motorPos);
     
     if (stepIdx % 25 == 0) {
-      ang -= 0.25;
-      int pct = map(motorPos, retractStartPos, 0, 70, 100);
-      pct = constrain(pct, 70, 100);
-      char mmBuf[32];
-      int curMm = map(motorPos, 0, totalSteps, 0, 80);
-      snprintf(mmBuf, sizeof(mmBuf), "RETRACTING: %d mm", curMm);
-      drawQuantumDispenseHud(cx, cy, ang, "PLEASE TAKE ITEM!", mmBuf, pct);
+      ang += 0.2;
+      drawCareDispenseAnimation(cx, cy, ang, "PLEASE TAKE ITEM", "Prepared with Care ❤️");
     }
     delayMicroseconds(maxSpeed + 200);
   }
@@ -2536,10 +2490,10 @@ void runDispenseWorkflow(const char* cardUid) {
   sendStat("idle");
 
   // Phase 4: DISPENSE COMPLETE & SUCCESS CHIME
-  for (int f = 0; f < 10; f++) {
-    ang += 0.4;
-    drawQuantumDispenseHud(cx, cy, ang, "DISPENSE COMPLETE!", "Thank You!", 100);
-    delay(50);
+  for (int f = 0; f < 12; f++) {
+    ang += 0.3;
+    drawCareDispenseAnimation(cx, cy, ang, "HAVE A GREAT DAY!", "You are wonderful! ✨");
+    delay(80);
   }
 
   setRgbLed(0, 0, 0); // LED OFF
