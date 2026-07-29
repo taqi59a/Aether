@@ -694,6 +694,10 @@ void moveToTargetSmooth(int destinationPos) {
 
   motorBusy = true;
   stopNow = false;
+  
+  // Power Optimization: Turn OFF RGB LED during motor move to provide 100% power headroom to motor & TFT screen!
+  setRgbLed(0, 0, 0);
+
   sendStat("moving");
   publishMqttStatus();
 
@@ -2925,11 +2929,12 @@ void runScreensaverFrame() {
   static float angle = 0.0;
   static unsigned long lastFrameMs = 0;
 
-  if (millis() - lastFrameMs < 30) return;
+  // 50% Slower frame update rate (60ms instead of 30ms)
+  if (millis() - lastFrameMs < 60) return;
   lastFrameMs = millis();
 
   int cx = SW / 2;
-  int cy = SH / 2;
+  int cy = SH / 2 - 10;
 
   if (stateStartMs == 0) {
     stateStartMs = millis();
@@ -2940,10 +2945,10 @@ void runScreensaverFrame() {
   unsigned long elapsed = millis() - stateStartMs;
 
   // -------------------------------------------------------------------
-  // PHASE 0: BLUE & YELLOW LINES STRIKE TOGETHER IN CENTER (1.2 seconds)
+  // PHASE 0: BLUE & YELLOW LINES STRIKE TOGETHER IN CENTER (1.5 seconds)
   // -------------------------------------------------------------------
   if (savState == 0) {
-    float progress = (float)elapsed / 1200.0;
+    float progress = (float)elapsed / 1500.0;
     if (progress > 1.0) progress = 1.0;
 
     tft.fillScreen(C_BK);
@@ -2970,52 +2975,59 @@ void runScreensaverFrame() {
     tft.drawLine(SW, SH, xBR, yBR, C_GL);
 
     // Center Energy Strike Core
-    int r = (int)(progress * 18.0);
+    int r = (int)(progress * 22.0);
     tft.drawCircle(cx, cy, r, (r % 2 == 0) ? C_WH : C_CY);
 
-    if (elapsed >= 1200) {
+    if (elapsed >= 1500) {
       savState = 1; // Transition to Hold & Rotate
       stateStartMs = millis();
       tft.fillScreen(C_BK);
     }
   }
   // -------------------------------------------------------------------
-  // PHASE 1: "AETHER" FORMS & HOLDS FOR 2.5 SECONDS WITH ROTATING RING
+  // PHASE 1: HUGE "AETHER" (TEXT SIZE 4 ~80% WIDTH) HOLDS FOR 3 SECONDS
   // -------------------------------------------------------------------
   else if (savState == 1) {
-    angle += 0.08;
-    tft.fillRect(cx - 65, cy - 40, 130, 80, C_BK);
+    angle += 0.05; // 50% Slower orbit speed
 
-    // Dynamic Rotating Cyber Ring around AETHER
+    // Clear inner canvas for smooth satellite orbit
+    tft.fillRect(0, cy - 50, SW, 100, C_BK);
+
+    // Orbiting Satellite Dots (Magenta & Cyan) kept FAR AWAY from AETHER text (rx = 92px, ry = 42px)
     for (int i = 0; i < 4; i++) {
       float a = angle + (i * M_PI_2);
-      int rx = cx + (int)(44.0 * cos(a));
-      int ry = cy + (int)(32.0 * sin(a));
-      tft.fillCircle(rx, ry, 3, (i % 2 == 0) ? C_CY : C_GL);
+      int rx = cx + (int)(92.0 * cos(a));
+      int ry = cy + (int)(42.0 * sin(a));
+      uint16_t dotCol = (i % 2 == 0) ? 0xF81F : C_CY; // Bright Magenta & Deep Cyan
+      tft.fillCircle(rx, ry, 4, dotCol);
     }
 
-    // Centered Glowing "AETHER" Logo (Bold Text Size 3)
-    tft.setTextSize(3);
+    // Huge Bold "AETHER" Logo (Text Size 4 = 144px width = ~80% SW)
+    tft.setTextSize(4);
     tft.setTextColor(C_GL, C_BK);
-    tft.setCursor(cx - 52, cy - 12);
+    tft.setCursor(cx - 70, cy - 16);
     tft.print("AETHER");
 
-    // Subtitle Callout
+    // Clear Banners: TAP ACCESS CARD or PRESS TOP BUTTON FOR QR
     tft.setTextSize(1);
     tft.setTextColor(C_CY, C_BK);
-    tft.setCursor(cx - 54, cy + 22);
-    tft.print("QUANTUM CARE SYSTEM");
+    tft.setCursor(cx - 48, SH - 36);
+    tft.print("TAP ACCESS CARD");
 
-    if (elapsed >= 2500) {
+    tft.setTextColor(getAccentGold(), C_BK);
+    tft.setCursor(cx - 78, SH - 20);
+    tft.print("OR PRESS TOP BUTTON FOR QR");
+
+    if (elapsed >= 3000) { // Holds for 3 full seconds!
       savState = 2; // Transition to Shatter
       stateStartMs = millis();
     }
   }
   // -------------------------------------------------------------------
-  // PHASE 2: BREAKING / SHATTERING INTO LIGHT PARTICLES (1.2 seconds)
+  // PHASE 2: BREAKING / SHATTERING INTO LIGHT PARTICLES (1.5 seconds)
   // -------------------------------------------------------------------
   else if (savState == 2) {
-    float progress = (float)elapsed / 1200.0;
+    float progress = (float)elapsed / 1500.0;
     if (progress > 1.0) progress = 1.0;
 
     tft.fillScreen(C_BK);
@@ -3023,7 +3035,7 @@ void runScreensaverFrame() {
     // 12 Shattered Light Particles flying back to corners
     for (int i = 0; i < 12; i++) {
       float a = i * (2.0 * M_PI / 12.0);
-      float dist = progress * 140.0;
+      float dist = progress * 150.0;
       int px = cx + (int)(dist * cos(a));
       int py = cy + (int)(dist * sin(a));
       uint16_t col = (i % 2 == 0) ? C_CY : C_GL;
@@ -3031,7 +3043,7 @@ void runScreensaverFrame() {
       tft.drawLine(cx, cy, px, py, col);
     }
 
-    if (elapsed >= 1200) {
+    if (elapsed >= 1500) {
       savState = 0; // Seamless Loop back to Phase 0 (Convergence)!
       stateStartMs = millis();
     }
