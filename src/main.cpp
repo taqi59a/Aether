@@ -380,6 +380,7 @@ void drawCareDispenseAnimation(int cx, int cy, float frameAngle, const char* tit
 void runDispenseWorkflow(const char* cardUid);
 void updateRainbowRgbLed();
 void processStealthCombo(bool isK0, bool isKnob);
+void drawHexagon(int cx, int cy, int r, uint16_t color);
 void runScreensaverFrame();
 
 // ================================================
@@ -1141,6 +1142,11 @@ void loop() {
   // Secret Stealth Mode Toggle (2x K0 + 2x Knob Button within 5s)
   if (psh || k0) {
     processStealthCombo(k0, psh);
+    if (!isStealthMode && (curScreen == SCR_STANDBY)) {
+      // Clear button flags on wakeup so Stealth Mode exit NEVER opens the menu!
+      psh = false;
+      k0 = false;
+    }
   }
 
   if (isStealthMode) {
@@ -2921,11 +2927,26 @@ void processStealthCombo(bool isK0, bool isKnob) {
   }
 }
 
+// -------------------------------------------------------------
+//  CYBERPUNK FUTURISTIC HEXAGON GRID SCREENSAVER
+// -------------------------------------------------------------
+void drawHexagon(int cx, int cy, int r, uint16_t color) {
+  for (int i = 0; i < 6; i++) {
+    float a1 = i * M_PI / 3.0;
+    float a2 = (i + 1) * M_PI / 3.0;
+    int x1 = cx + (int)(r * cos(a1));
+    int y1 = cy + (int)(r * sin(a1));
+    int x2 = cx + (int)(r * cos(a2));
+    int y2 = cy + (int)(r * sin(a2));
+    tft.drawLine(x1, y1, x2, y2, color);
+  }
+}
+
 void runScreensaverFrame() {
   if (curScreen != SCR_SCREENSAVER) return;
 
   static unsigned long stateStartMs = 0;
-  static int savState = 0; // 0 = Strike, 1 = Hold/Rotate, 2 = Shatter
+  static int savState = 0; // 0 = Hex Strike, 1 = Hold/Rotate, 2 = Shatter
   static float angle = 0.0;
   static unsigned long lastFrameMs = 0;
 
@@ -2948,25 +2969,25 @@ void runScreensaverFrame() {
   static int pXTL = 0, pYTL = 0, pXTR = 0, pYTR = 0;
   static int pXBL = 0, pYBL = 0, pXBR = 0, pYBR = 0;
   static int pR = 0;
-  static int pRx[4] = {0}, pRy[4] = {0};
+  static int pRx[6] = {0}, pRy[6] = {0};
   static int pPx[12] = {0}, pPy[12] = {0};
   static bool phase1Init = false;
 
   // -------------------------------------------------------------------
-  // PHASE 0: BLUE & YELLOW LINES STRIKE TOGETHER (100% Zero-Flicker)
+  // PHASE 0: LIGHT BLUE HEXAGON MATRIX STRIKE (100% Zero-Flicker)
   // -------------------------------------------------------------------
   if (savState == 0) {
     phase1Init = false;
     float progress = (float)elapsed / 1400.0;
     if (progress > 1.0) progress = 1.0;
 
-    // Erase previous frame lines & circle core in C_BK
+    // Erase previous frame lines & hexagon core in C_BK
     if (pXTL != 0 || pYTL != 0) {
       tft.drawLine(0, 0, pXTL, pYTL, C_BK);
       tft.drawLine(SW, 0, pXTR, pYTR, C_BK);
       tft.drawLine(0, SH, pXBL, pYBL, C_BK);
       tft.drawLine(SW, SH, pXBR, pYBR, C_BK);
-      if (pR > 0) tft.drawCircle(cx, cy, pR, C_BK);
+      if (pR > 0) drawHexagon(cx, cy, pR, C_BK);
     }
 
     // New Corner Positions
@@ -2981,14 +3002,14 @@ void runScreensaverFrame() {
 
     pXBR = (int)(SW - progress * cx);
     pYBR = (int)(SH - progress * cy);
-    pR = (int)(progress * 22.0);
+    pR = (int)(progress * 34.0);
 
-    // Draw new lines & circle core
+    // Draw Light Blue (Cyan) lines & growing Hexagon Core
     tft.drawLine(0, 0, pXTL, pYTL, C_CY);
     tft.drawLine(SW, 0, pXTR, pYTR, C_CY);
     tft.drawLine(0, SH, pXBL, pYBL, C_GL);
     tft.drawLine(SW, SH, pXBR, pYBR, C_GL);
-    tft.drawCircle(cx, cy, pR, (pR % 2 == 0) ? C_WH : C_CY);
+    drawHexagon(cx, cy, pR, C_CY);
 
     if (elapsed >= 1400) {
       savState = 1;
@@ -2997,12 +3018,18 @@ void runScreensaverFrame() {
     }
   }
   // -------------------------------------------------------------------
-  // PHASE 1: HUGE "AETHER" (TEXT SIZE 4 ~80% WIDTH) HOLDS FOR 3 SECONDS
+  // PHASE 1: HUGE "AETHER" LOGO & ORBITING HEX SHIELD SATELLITES (3.0s)
   // -------------------------------------------------------------------
   else if (savState == 1) {
     if (!phase1Init) {
       phase1Init = true;
       tft.fillScreen(C_BK);
+
+      // Draw background Cyberpunk Hexagon Grid Mesh
+      drawHexagon(cx - 70, cy - 30, 20, 0x10A4);
+      drawHexagon(cx + 70, cy - 30, 20, 0x10A4);
+      drawHexagon(cx - 70, cy + 30, 20, 0x10A4);
+      drawHexagon(cx + 70, cy + 30, 20, 0x10A4);
 
       // Draw Static Huge "AETHER" Logo ONCE (Text Size 4 = 144px width = ~80% SW)
       tft.setTextSize(4);
@@ -3020,27 +3047,27 @@ void runScreensaverFrame() {
       tft.setCursor(cx - 78, SH - 20);
       tft.print("OR PRESS TOP BUTTON FOR QR");
 
-      for (int i = 0; i < 4; i++) {
+      for (int i = 0; i < 6; i++) {
         pRx[i] = 0; pRy[i] = 0;
       }
     }
 
     angle += 0.05;
 
-    // Erase previous 4 satellite dots in C_BK (NO RECTANGLE WIPES = ZERO FLICKER!)
-    for (int i = 0; i < 4; i++) {
+    // Erase previous 6 hexagon satellite nodes in C_BK (NO RECTANGLE WIPES!)
+    for (int i = 0; i < 6; i++) {
       if (pRx[i] != 0 && pRy[i] != 0) {
-        tft.fillCircle(pRx[i], pRy[i], 4, C_BK);
+        drawHexagon(pRx[i], pRy[i], 6, C_BK);
       }
     }
 
-    // Draw new 4 satellite dots
-    for (int i = 0; i < 4; i++) {
-      float a = angle + (i * M_PI_2);
-      int rx = cx + (int)(92.0 * cos(a));
-      int ry = cy + (int)(42.0 * sin(a));
-      uint16_t dotCol = (i % 2 == 0) ? 0xF81F : C_CY; // Bright Magenta & Deep Cyan
-      tft.fillCircle(rx, ry, 4, dotCol);
+    // Draw new 6 orbiting hexagon satellite nodes
+    for (int i = 0; i < 6; i++) {
+      float a = angle + (i * M_PI / 3.0);
+      int rx = cx + (int)(94.0 * cos(a));
+      int ry = cy + (int)(44.0 * sin(a));
+      uint16_t nodeCol = (i % 2 == 0) ? C_CY : 0xF81F; // Light Blue Cyan & Magenta
+      drawHexagon(rx, ry, 6, nodeCol);
       pRx[i] = rx;
       pRy[i] = ry;
     }
@@ -3052,7 +3079,7 @@ void runScreensaverFrame() {
     }
   }
   // -------------------------------------------------------------------
-  // PHASE 2: BREAKING / SHATTERING INTO PARTICLES (In-Place Erasure)
+  // PHASE 2: HEXAGON SHATTER & LIGHT RAYS (In-Place Erasure)
   // -------------------------------------------------------------------
   else if (savState == 2) {
     float progress = (float)elapsed / 1400.0;
