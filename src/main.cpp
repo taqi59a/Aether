@@ -2929,8 +2929,8 @@ void runScreensaverFrame() {
   static float angle = 0.0;
   static unsigned long lastFrameMs = 0;
 
-  // 50% Slower frame update rate (60ms instead of 30ms)
-  if (millis() - lastFrameMs < 60) return;
+  // 50% Slower frame update rate (50ms instead of 30ms)
+  if (millis() - lastFrameMs < 50) return;
   lastFrameMs = millis();
 
   int cx = SW / 2;
@@ -2944,42 +2944,54 @@ void runScreensaverFrame() {
 
   unsigned long elapsed = millis() - stateStartMs;
 
+  // Previous frame coordinates for 100% Flicker-Free In-Place Erasure
+  static int pXTL = 0, pYTL = 0, pXTR = 0, pYTR = 0;
+  static int pXBL = 0, pYBL = 0, pXBR = 0, pYBR = 0;
+  static int pR = 0;
+  static int pRx[4] = {0}, pRy[4] = {0};
+  static int pPx[12] = {0}, pPy[12] = {0};
+  static bool phase1Init = false;
+
   // -------------------------------------------------------------------
-  // PHASE 0: BLUE & YELLOW LINES STRIKE TOGETHER IN CENTER (1.5 seconds)
+  // PHASE 0: BLUE & YELLOW LINES STRIKE TOGETHER (100% Zero-Flicker)
   // -------------------------------------------------------------------
   if (savState == 0) {
-    float progress = (float)elapsed / 1500.0;
+    phase1Init = false;
+    float progress = (float)elapsed / 1400.0;
     if (progress > 1.0) progress = 1.0;
 
-    tft.fillScreen(C_BK);
+    // Erase previous frame lines & circle core in C_BK
+    if (pXTL != 0 || pYTL != 0) {
+      tft.drawLine(0, 0, pXTL, pYTL, C_BK);
+      tft.drawLine(SW, 0, pXTR, pYTR, C_BK);
+      tft.drawLine(0, SH, pXBL, pYBL, C_BK);
+      tft.drawLine(SW, SH, pXBR, pYBR, C_BK);
+      if (pR > 0) tft.drawCircle(cx, cy, pR, C_BK);
+    }
 
-    // 4 Corner Positions
-    int xTL = (int)(0 + progress * cx);
-    int yTL = (int)(0 + progress * cy);
+    // New Corner Positions
+    pXTL = (int)(0 + progress * cx);
+    pYTL = (int)(0 + progress * cy);
 
-    int xTR = (int)(SW - progress * cx);
-    int yTR = (int)(0 + progress * cy);
+    pXTR = (int)(SW - progress * cx);
+    pYTR = (int)(0 + progress * cy);
 
-    int xBL = (int)(0 + progress * cx);
-    int yBL = (int)(SH - progress * cy);
+    pXBL = (int)(0 + progress * cx);
+    pYBL = (int)(SH - progress * cy);
 
-    int xBR = (int)(SW - progress * cx);
-    int yBR = (int)(SH - progress * cy);
+    pXBR = (int)(SW - progress * cx);
+    pYBR = (int)(SH - progress * cy);
+    pR = (int)(progress * 22.0);
 
-    // Blue (Cyan) Energy Lines from Top Corners
-    tft.drawLine(0, 0, xTL, yTL, C_CY);
-    tft.drawLine(SW, 0, xTR, yTR, C_CY);
+    // Draw new lines & circle core
+    tft.drawLine(0, 0, pXTL, pYTL, C_CY);
+    tft.drawLine(SW, 0, pXTR, pYTR, C_CY);
+    tft.drawLine(0, SH, pXBL, pYBL, C_GL);
+    tft.drawLine(SW, SH, pXBR, pYBR, C_GL);
+    tft.drawCircle(cx, cy, pR, (pR % 2 == 0) ? C_WH : C_CY);
 
-    // Yellow (Gold) Energy Lines from Bottom Corners
-    tft.drawLine(0, SH, xBL, yBL, C_GL);
-    tft.drawLine(SW, SH, xBR, yBR, C_GL);
-
-    // Center Energy Strike Core
-    int r = (int)(progress * 22.0);
-    tft.drawCircle(cx, cy, r, (r % 2 == 0) ? C_WH : C_CY);
-
-    if (elapsed >= 1500) {
-      savState = 1; // Transition to Hold & Rotate
+    if (elapsed >= 1400) {
+      savState = 1;
       stateStartMs = millis();
       tft.fillScreen(C_BK);
     }
@@ -2988,51 +3000,73 @@ void runScreensaverFrame() {
   // PHASE 1: HUGE "AETHER" (TEXT SIZE 4 ~80% WIDTH) HOLDS FOR 3 SECONDS
   // -------------------------------------------------------------------
   else if (savState == 1) {
-    angle += 0.05; // 50% Slower orbit speed
+    if (!phase1Init) {
+      phase1Init = true;
+      tft.fillScreen(C_BK);
 
-    // Clear inner canvas for smooth satellite orbit
-    tft.fillRect(0, cy - 50, SW, 100, C_BK);
+      // Draw Static Huge "AETHER" Logo ONCE (Text Size 4 = 144px width = ~80% SW)
+      tft.setTextSize(4);
+      tft.setTextColor(C_GL, C_BK);
+      tft.setCursor(cx - 70, cy - 16);
+      tft.print("AETHER");
 
-    // Orbiting Satellite Dots (Magenta & Cyan) kept FAR AWAY from AETHER text (rx = 92px, ry = 42px)
+      // Draw Static Instruction Banners ONCE
+      tft.setTextSize(1);
+      tft.setTextColor(C_CY, C_BK);
+      tft.setCursor(cx - 48, SH - 36);
+      tft.print("TAP ACCESS CARD");
+
+      tft.setTextColor(getAccentGold(), C_BK);
+      tft.setCursor(cx - 78, SH - 20);
+      tft.print("OR PRESS TOP BUTTON FOR QR");
+
+      for (int i = 0; i < 4; i++) {
+        pRx[i] = 0; pRy[i] = 0;
+      }
+    }
+
+    angle += 0.05;
+
+    // Erase previous 4 satellite dots in C_BK (NO RECTANGLE WIPES = ZERO FLICKER!)
+    for (int i = 0; i < 4; i++) {
+      if (pRx[i] != 0 && pRy[i] != 0) {
+        tft.fillCircle(pRx[i], pRy[i], 4, C_BK);
+      }
+    }
+
+    // Draw new 4 satellite dots
     for (int i = 0; i < 4; i++) {
       float a = angle + (i * M_PI_2);
       int rx = cx + (int)(92.0 * cos(a));
       int ry = cy + (int)(42.0 * sin(a));
       uint16_t dotCol = (i % 2 == 0) ? 0xF81F : C_CY; // Bright Magenta & Deep Cyan
       tft.fillCircle(rx, ry, 4, dotCol);
+      pRx[i] = rx;
+      pRy[i] = ry;
     }
 
-    // Huge Bold "AETHER" Logo (Text Size 4 = 144px width = ~80% SW)
-    tft.setTextSize(4);
-    tft.setTextColor(C_GL, C_BK);
-    tft.setCursor(cx - 70, cy - 16);
-    tft.print("AETHER");
-
-    // Clear Banners: TAP ACCESS CARD or PRESS TOP BUTTON FOR QR
-    tft.setTextSize(1);
-    tft.setTextColor(C_CY, C_BK);
-    tft.setCursor(cx - 48, SH - 36);
-    tft.print("TAP ACCESS CARD");
-
-    tft.setTextColor(getAccentGold(), C_BK);
-    tft.setCursor(cx - 78, SH - 20);
-    tft.print("OR PRESS TOP BUTTON FOR QR");
-
-    if (elapsed >= 3000) { // Holds for 3 full seconds!
-      savState = 2; // Transition to Shatter
+    if (elapsed >= 3000) {
+      savState = 2;
       stateStartMs = millis();
+      pXTL = 0; pYTL = 0;
     }
   }
   // -------------------------------------------------------------------
-  // PHASE 2: BREAKING / SHATTERING INTO LIGHT PARTICLES (1.5 seconds)
+  // PHASE 2: BREAKING / SHATTERING INTO PARTICLES (In-Place Erasure)
   // -------------------------------------------------------------------
   else if (savState == 2) {
-    float progress = (float)elapsed / 1500.0;
+    float progress = (float)elapsed / 1400.0;
     if (progress > 1.0) progress = 1.0;
 
-    tft.fillScreen(C_BK);
+    // Erase previous 12 particles & lines
+    for (int i = 0; i < 12; i++) {
+      if (pPx[i] != 0 || pPy[i] != 0) {
+        tft.fillCircle(pPx[i], pPy[i], 3, C_BK);
+        tft.drawLine(cx, cy, pPx[i], pPy[i], C_BK);
+      }
+    }
 
-    // 12 Shattered Light Particles flying back to corners
+    // Draw new 12 particles & lines
     for (int i = 0; i < 12; i++) {
       float a = i * (2.0 * M_PI / 12.0);
       float dist = progress * 150.0;
@@ -3041,11 +3075,15 @@ void runScreensaverFrame() {
       uint16_t col = (i % 2 == 0) ? C_CY : C_GL;
       tft.fillCircle(px, py, 3, col);
       tft.drawLine(cx, cy, px, py, col);
+      pPx[i] = px;
+      pPy[i] = py;
     }
 
-    if (elapsed >= 1500) {
-      savState = 0; // Seamless Loop back to Phase 0 (Convergence)!
+    if (elapsed >= 1400) {
+      savState = 0;
       stateStartMs = millis();
+      tft.fillScreen(C_BK);
+      for (int i = 0; i < 12; i++) { pPx[i] = 0; pPy[i] = 0; }
     }
   }
 }
