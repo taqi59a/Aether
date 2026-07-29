@@ -2933,8 +2933,24 @@ void processStealthCombo(bool isK0, bool isKnob) {
 }
 
 // -------------------------------------------------------------
-//  CYBERPUNK FUTURISTIC HEXAGON GRID SCREENSAVER
+//  3D CYBER STARFIELD WARP & HEXAGON VIDEO SHADER ENGINE
 // -------------------------------------------------------------
+struct StarParticle {
+  float x, y, z;
+};
+const int NUM_STARS = 20;
+StarParticle stars[NUM_STARS];
+bool starsInited = false;
+
+void initStarfield() {
+  for (int i = 0; i < NUM_STARS; i++) {
+    stars[i].x = (float)(random(-110, 110));
+    stars[i].y = (float)(random(-110, 110));
+    stars[i].z = (float)(random(10, 180));
+  }
+  starsInited = true;
+}
+
 void drawHexagon(int cx, int cy, int r, uint16_t color) {
   for (int i = 0; i < 6; i++) {
     float a1 = i * M_PI / 3.0;
@@ -2951,16 +2967,17 @@ void runScreensaverFrame() {
   if (curScreen != SCR_SCREENSAVER) return;
 
   static unsigned long stateStartMs = 0;
-  static int savState = 0; // 0 = Hex Strike, 1 = Hold/Rotate, 2 = Shatter
+  static int savState = 0; // 0 = Warp Strike, 1 = Hold/Orbit, 2 = Shatter Burst
   static float angle = 0.0;
   static unsigned long lastFrameMs = 0;
 
-  // 50% Slower frame update rate (50ms instead of 30ms)
-  if (millis() - lastFrameMs < 50) return;
+  if (millis() - lastFrameMs < 40) return;
   lastFrameMs = millis();
 
   int cx = SW / 2;
   int cy = SH / 2 - 10;
+
+  if (!starsInited) initStarfield();
 
   if (stateStartMs == 0) {
     stateStartMs = millis();
@@ -2970,60 +2987,59 @@ void runScreensaverFrame() {
 
   unsigned long elapsed = millis() - stateStartMs;
 
-  // Previous frame coordinates for 100% Flicker-Free In-Place Erasure
-  static int pXTL = 0, pYTL = 0, pXTR = 0, pYTR = 0;
-  static int pXBL = 0, pYBL = 0, pXBR = 0, pYBR = 0;
+  static int pSx[NUM_STARS] = {0}, pSy[NUM_STARS] = {0};
   static int pR = 0;
   static int pRx[6] = {0}, pRy[6] = {0};
   static int pPx[12] = {0}, pPy[12] = {0};
   static bool phase1Init = false;
 
   // -------------------------------------------------------------------
-  // PHASE 0: LIGHT BLUE HEXAGON MATRIX STRIKE (100% Zero-Flicker)
+  // PHASE 0: 3D CYBER WARP STARFIELD & HEXAGON STRIKE (100% Zero-Flicker)
   // -------------------------------------------------------------------
   if (savState == 0) {
     phase1Init = false;
-    float progress = (float)elapsed / 1400.0;
+    float progress = (float)elapsed / 1500.0;
     if (progress > 1.0) progress = 1.0;
 
-    // Erase previous frame lines & hexagon core in C_BK
-    if (pXTL != 0 || pYTL != 0) {
-      tft.drawLine(0, 0, pXTL, pYTL, C_BK);
-      tft.drawLine(SW, 0, pXTR, pYTR, C_BK);
-      tft.drawLine(0, SH, pXBL, pYBL, C_BK);
-      tft.drawLine(SW, SH, pXBR, pYBR, C_BK);
-      if (pR > 0) drawHexagon(cx, cy, pR, C_BK);
+    // Erase previous starfield particles in C_BK
+    for (int i = 0; i < NUM_STARS; i++) {
+      if (pSx[i] > 0 && pSy[i] > 0) {
+        tft.drawPixel(pSx[i], pSy[i], C_BK);
+      }
     }
 
-    // New Corner Positions
-    pXTL = (int)(0 + progress * cx);
-    pYTL = (int)(0 + progress * cy);
+    // Erase previous hexagon core
+    if (pR > 0) drawHexagon(cx, cy, pR, C_BK);
+    pR = (int)(progress * 36.0);
 
-    pXTR = (int)(SW - progress * cx);
-    pYTR = (int)(0 + progress * cy);
+    // Update & draw 3D Warp Starfield stream
+    for (int i = 0; i < NUM_STARS; i++) {
+      stars[i].z -= 6.0f;
+      if (stars[i].z <= 2.0f) {
+        stars[i].x = (float)(random(-110, 110));
+        stars[i].y = (float)(random(-110, 110));
+        stars[i].z = 180.0f;
+      }
+      int sx = cx + (int)(stars[i].x * 120.0f / stars[i].z);
+      int sy = cy + (int)(stars[i].y * 120.0f / stars[i].z);
+      if (sx >= 0 && sx < SW && sy >= 0 && sy < SH) {
+        tft.drawPixel(sx, sy, (i % 2 == 0) ? C_CY : C_GL);
+        pSx[i] = sx;
+        pSy[i] = sy;
+      }
+    }
 
-    pXBL = (int)(0 + progress * cx);
-    pYBL = (int)(SH - progress * cy);
-
-    pXBR = (int)(SW - progress * cx);
-    pYBR = (int)(SH - progress * cy);
-    pR = (int)(progress * 34.0);
-
-    // Draw Light Blue (Cyan) lines & growing Hexagon Core
-    tft.drawLine(0, 0, pXTL, pYTL, C_CY);
-    tft.drawLine(SW, 0, pXTR, pYTR, C_CY);
-    tft.drawLine(0, SH, pXBL, pYBL, C_GL);
-    tft.drawLine(SW, SH, pXBR, pYBR, C_GL);
+    // Draw central pulsing Hexagon Core
     drawHexagon(cx, cy, pR, C_CY);
 
-    if (elapsed >= 1400) {
+    if (elapsed >= 1500) {
       savState = 1;
       stateStartMs = millis();
       tft.fillScreen(C_BK);
     }
   }
   // -------------------------------------------------------------------
-  // PHASE 1: HUGE "AETHER" LOGO & ORBITING HEX SHIELD SATELLITES (3.0s)
+  // PHASE 1: HUGE "AETHER" LOGO & 3D ORBITING HEX SHIELD NODES (3.0s)
   // -------------------------------------------------------------------
   else if (savState == 1) {
     if (!phase1Init) {
@@ -3031,10 +3047,10 @@ void runScreensaverFrame() {
       tft.fillScreen(C_BK);
 
       // Draw background Cyberpunk Hexagon Grid Mesh
-      drawHexagon(cx - 70, cy - 30, 20, 0x10A4);
-      drawHexagon(cx + 70, cy - 30, 20, 0x10A4);
-      drawHexagon(cx - 70, cy + 30, 20, 0x10A4);
-      drawHexagon(cx + 70, cy + 30, 20, 0x10A4);
+      drawHexagon(cx - 72, cy - 32, 22, 0x10A4);
+      drawHexagon(cx + 72, cy - 32, 22, 0x10A4);
+      drawHexagon(cx - 72, cy + 32, 22, 0x10A4);
+      drawHexagon(cx + 72, cy + 32, 22, 0x10A4);
 
       // Draw Static Huge "AETHER" Logo ONCE (Text Size 4 = 144px width = ~80% SW)
       tft.setTextSize(4);
@@ -3080,14 +3096,13 @@ void runScreensaverFrame() {
     if (elapsed >= 3000) {
       savState = 2;
       stateStartMs = millis();
-      pXTL = 0; pYTL = 0;
     }
   }
   // -------------------------------------------------------------------
-  // PHASE 2: HEXAGON SHATTER & LIGHT RAYS (In-Place Erasure)
+  // PHASE 2: QUANTUM PARTICLE DISPERSION BURST (In-Place Erasure)
   // -------------------------------------------------------------------
   else if (savState == 2) {
-    float progress = (float)elapsed / 1400.0;
+    float progress = (float)elapsed / 1500.0;
     if (progress > 1.0) progress = 1.0;
 
     // Erase previous 12 particles & lines
@@ -3111,7 +3126,7 @@ void runScreensaverFrame() {
       pPy[i] = py;
     }
 
-    if (elapsed >= 1400) {
+    if (elapsed >= 1500) {
       savState = 0;
       stateStartMs = millis();
       tft.fillScreen(C_BK);
