@@ -1,6 +1,6 @@
 # 🏛️ AETHER System Architecture & Engineering Specification
 
-> **Version**: 2.4.0  
+> **Version**: 2.5.0  
 > **Target Microcontroller**: ESP32-S3-DevKitC-1 (240MHz Xtensa Dual-Core, 8MB Flash, 320KB SRAM)  
 > **Firmware Framework**: Arduino ESP32 Framework v3.x / PlatformIO  
 
@@ -17,7 +17,7 @@
 | **Quadrature Rotary Encoder**| GPIO (ENC_A=17, ENC_B=18, ENC_SW=16) | Interrupt-driven quadrature input + push button |
 | **K0 Kill Switch** | GPIO 0 (BOOT Button / Pull-up) | Instant Emergency Stop / Back Button |
 | **Piezo Buzzer** | GPIO 5 | Non-blocking tone audio alerts |
-| **WS2812 RGB LED** | GPIO 48 & 38 | Built-in RGB Telemetry LED |
+| **WS2812 RGB LED** | GPIO 48 & 38 | Built-in RGB Telemetry LED (Breathing Rainbow in Standby) |
 
 ---
 
@@ -28,6 +28,8 @@ graph TD
     SCR_STARTUP -->|Startup Melody & Animation Finished| SCR_STANDBY
     SCR_STANDBY -->|Admin Card Tapped| SCR_MENU
     SCR_STANDBY -->|User Card Tapped| SCR_DISPENSE
+    SCR_STANDBY -->|30s Idle Timeout| SCR_SCREENSAVER
+    SCR_SCREENSAVER -->|Knob / K0 / RFID / Web Activity| SCR_STANDBY
     SCR_DISPENSE -->|Dispense & Retract Complete| SCR_STANDBY
     SCR_MENU -->|Knob Select 1| SCR_SUB_STOCK
     SCR_MENU -->|Knob Select 2| SCR_SUB_MOTOR
@@ -45,19 +47,27 @@ graph TD
 
 ---
 
-## 3. Zero-Flicker SPI Graphic Rendering Engine
+## 3. Advanced Features & System Behavior
 
-To achieve **100% Zero-Flicker** performance across the 240x320 SPI LCD:
+1. **Secret Stealth Mode Toggle (2x K0 + 2x Knob Press within 5s)**:
+   - Pressing K0 twice and Knob button twice within 5 seconds turns off the display backlight (`digitalWrite(TFT_BLK, LOW)`), turns off the RGB LED, and clears power indicators while **keeping Wi-Fi, Web Server, MQTT, and Board background loops running 100% active**.
+   - Repeating the combo code turns the machine back ON instantly with power-up audio chime!
 
-1. **In-Place Slot Updating**:
-   - `updateSubMenuSelection()` updates ONLY the rectangular bounding boxes of newly highlighted menu items (`Size 2 Bold Text`).
-   - `drawStockData()` updates numerical distance/percentage text in-place without `fillScreen()` calls.
-   - `drawI2cDiagData()` refreshes live TOF sensor readings in-place.
+2. **30-Second Idle 3D Octahedron Screensaver**:
+   - If the machine is in `SCR_STANDBY` and idle for **> 30 seconds** without any interaction, it automatically enters Screensaver mode (`SCR_SCREENSAVER`), rendering a smooth 3D Rotating Wireframe Octahedron Diamond.
+   - Any knob rotation, button press, RFID card scan, or Web command **instantly exits the screensaver** back to Standby. If the user is interacting with the machine or dispensing, screensaver is **strictly blocked**.
 
-2. **Static Frame Initialization & Zero-Wipe Overlay**:
-   - `drawCareDispenseFrame()` renders the background frame, header bar, and footer **once** on screen entry.
-   - `drawCareDispenseAnimation()` draws flower petals, golden core, and pulsing heart directly over canvas coordinates without calling full-screen or circular background wipes (`fillCircle` / `fillRect`).
-   - Text banners overwrite in-place using text background colors (`setTextColor(fg, bg)`).
+3. **Breathing Rainbow RGB LED**:
+   - While idle in Standby mode, the built-in WS2812 RGB LED smoothly cycles through HSL spectrum colors for a modern aesthetic look.
+
+4. **High-Contrast Standby QR Title**:
+   - Features a dark backdrop header box (`tft.fillRect(0,0,SW,50)`) with gold "AETHER" title text and high-contrast subtext above the QR code.
+
+5. **Bold Size 2 Text & Marquee Ticker Scroll**:
+   - All menu items use **Size 2 Bold Text**. If a highlighted menu label is longer than 13 characters, it smoothly marquee scrolls right-to-left in-place without full-screen flicker.
+
+6. **Persistent NVS Data Retention Across Firmware Updates**:
+   - All Admin Cards, Wi-Fi configurations, stock depths, and theme settings are stored in dedicated flash NVS sectors (`"admin-store"`, `"motor-store"`, `"wifi-store"`). Updating firmware over USB or OTA will **never delete user data or Wi-Fi credentials**.
 
 ---
 
@@ -74,33 +84,3 @@ Motor movement is managed by the **Unified Motion Dispatcher** (`moveToTargetSmo
 | `maxSpeed` | `1800 µs` / step | Optimal 5V coil current saturation cruise speed under physical load |
 | `rampSteps` | `80` steps | Short linear S-curve ramp for instant high-torque push force |
 | `doStep()` | 2-Phase Full-Step | Phase sequence: `(1,0,1,0) -> (0,1,1,0) -> (0,1,0,1) -> (1,0,0,1)` |
-
----
-
-## 5. Persistent NVS Multi-Admin Card Security & Dispensing Guards
-
-1. **NVS Multi-Admin Storage**:
-   - Registered Admin Cards are saved in non-volatile flash under NVS namespace `"admin-store"`. Stored UIDs are sanitized (`cleanUid()`) of spaces and formatting.
-   - Up to 5 Admin Cards can be registered.
-
-2. **Admin Tap Session Lock**:
-   - Tapping any registered Admin Card instantly toggles Main Menu access (`SCR_MENU`).
-   - Displays an `ADMIN` header badge in green box.
-   - Disables the 10-second menu idle auto-exit timer so administrators can configure settings without timeout.
-
-3. **Dispensing Guard Rule**:
-   - Dispensing is strictly restricted to `curScreen == SCR_STANDBY`.
-   - Tapping any card while inside Admin Card Setup or Menu screens will **never** trigger motor dispensing.
-
-4. **Instant Auto-Save in Admin Setup**:
-   - Tapping any RFID card while in `Admin Card Setup` (`SCR_ADMIN_SETUP`) instantly registers it into NVS, displays a green `[+] SAVED: 44A1B2C3` banner, and plays a victory audio chime.
-
----
-
-## 6. Software Feature Wishlist & Future Enhancements
-
-Documented in `WISHLIST.md`:
-- **Over-The-Air (OTA) Firmware Updates** via Web Dashboard.
-- **Low-Stock Automatic Email/MQTT Alerts** when inventory falls below 20%.
-- **Dispense Quota Management** per user card ID within 24 hours.
-- **Anti-Jam Auto-Recovery Routine** with double pulse retries.

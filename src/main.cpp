@@ -205,9 +205,17 @@ enum Screen {
   SCR_WIFI_PASS, 
   SCR_WIFI_CONNECTING, 
   SCR_INFO, 
-  SCR_DISPENSE 
+  SCR_DISPENSE,
+  SCR_SCREENSAVER
 };
 Screen curScreen = SCR_STANDBY;
+
+// Stealth Mode & Screensaver State Variables
+bool isStealthMode = false;
+int comboK0Count = 0;
+int comboKnobCount = 0;
+unsigned long comboStartMs = 0;
+unsigned long lastUserActivityMs = 0;
 
 unsigned long lastK0PressMs = 0; // K0 Double-click Kill-Switch detection
 
@@ -359,7 +367,7 @@ void drawStockData();
 void drawI2cDiagScreen();
 void drawI2cDiagData();
 void drawSubMenu(const char* title, const char** labels, int count, int sel);
-void drawSubMenuItem(const char** labels, int idx, bool sel);
+void drawSubMenuItem(const char** labels, int idx, bool sel, int scrollOffset = 0);
 void updateSubMenuSelection(const char** labels, int oldSel, int newSel);
 void playStartupMelody();
 bool checkK0KillSwitch();
@@ -370,6 +378,9 @@ void drawAdminSetupScreen();
 void drawCareDispenseFrame();
 void drawCareDispenseAnimation(int cx, int cy, float frameAngle, const char* titleMsg, const char* subMsg);
 void runDispenseWorkflow(const char* cardUid);
+void updateRainbowRgbLed();
+void processStealthCombo(bool isK0, bool isKnob);
+void runScreensaverFrame();
 
 // ================================================
 //  TOF050C / VL6180X TOF STOCK DISTANCE SENSOR
@@ -673,6 +684,11 @@ void sendCorsHeaders() {
 //  (Global entry point for Knob, Web, MQTT, Serial)
 // ================================================
 void moveToTargetSmooth(int destinationPos) {
+  lastUserActivityMs = millis();
+  if (curScreen == SCR_SCREENSAVER) {
+    curScreen = SCR_STANDBY;
+    standbyScreen();
+  }
   destinationPos = constrain(destinationPos, 0, totalSteps);
   if (motorPos == destinationPos) return;
 
@@ -1117,6 +1133,44 @@ void loop() {
 
   if (psh) beep(2000, 10);
   if (k0)  beep(1600, 10);
+
+  // Secret Stealth Mode Toggle (2x K0 + 2x Knob Button within 5s)
+  if (psh || k0) {
+    processStealthCombo(k0, psh);
+  }
+
+  if (isStealthMode) {
+    setRgbLed(0, 0, 0);
+    delay(20);
+    return; // Pause UI execution while in Stealth Mode
+  }
+
+  // Activity tracker to control 30s Screensaver
+  if (diff != 0 || psh || k0) {
+    lastUserActivityMs = millis();
+    if (curScreen == SCR_SCREENSAVER) {
+      curScreen = SCR_STANDBY;
+      standbyScreen();
+      return;
+    }
+  }
+
+  // Run 3D Octahedron Screensaver if idle in Standby for > 30 seconds
+  if (curScreen == SCR_STANDBY && (millis() - lastUserActivityMs > 30000)) {
+    curScreen = SCR_SCREENSAVER;
+    tft.fillScreen(C_BK);
+    drawHudBrackets();
+  }
+
+  if (curScreen == SCR_SCREENSAVER) {
+    runScreensaverFrame();
+    return;
+  }
+
+  // Slow Breathing Rainbow RGB LED in Standby Mode
+  if (curScreen == SCR_STANDBY) {
+    updateRainbowRgbLed();
+  }
 
   if (curScreen != SCR_STANDBY && (diff != 0 || psh || k0)) {
     lastActionMs = millis();
@@ -1758,18 +1812,28 @@ void startup() {
 void standbyScreen() {
   uint16_t bg = getBgColor();
   tft.fillScreen(bg);
-  drawHudBrackets();
   
-  drawLogoText("AETHER", SW / 2 - 54, 15, 3);
-  
+  // High-Contrast Header Bar
+  tft.fillRect(0, 0, SW, 50, isDarkTheme ? tft.color565(15, 22, 40) : tft.color565(255, 235, 245));
+  tft.drawFastHLine(0, 50, SW, C_CY);
+
+  // Large Bold "AETHER" Logo Title (Gold Text with High Contrast Shadow)
+  drawLogoText("AETHER", SW / 2 - 54, 10, 3);
+
   tft.setTextSize(1);
-  tft.setTextColor(getTextSub());
-  tft.setCursor(57, 44);
-  tft.print("VENDING MACHINE #5552");
-  
+  tft.setTextColor(isDarkTheme ? C_CY : C_MG);
+  tft.setCursor(44, 35);
+  tft.print("VENDING CARE #5552");
+
   int qrX = (SW - 29 * 7) / 2;
-  int qrY = 64;
+  int qrY = 62;
   drawQRCode(qrX, qrY, 7);
+
+  // High-contrast bottom callout
+  tft.setTextSize(1);
+  tft.setTextColor(getTextMain());
+  tft.setCursor(14, SH - 22);
+  tft.print("SCAN QR OR TAP RFID CARD");
 
   pwReset();
   lastEnc = encCount;
@@ -1814,7 +1878,7 @@ void drawSubMenu(const char* title, const char** labels, int count, int sel) {
   }
 }
 
-void drawSubMenuItem(const char** labels, int idx, bool sel) {
+void drawSubMenuItem(const char** labels, int idx, bool sel, int scrollOffset) {
   int y = ITEM_Y0 + idx * ITEM_SP;
   uint16_t boxBg = getCardBg(sel);
   uint16_t textFg = getCardFg(sel);
@@ -1826,8 +1890,17 @@ void drawSubMenuItem(const char** labels, int idx, bool sel) {
   tft.setTextWrap(false); // Disable line wrap to prevent text clipping
   tft.setTextSize(2); // LARGE, BOLD, ULTRA-READABLE MENU TEXT!
   tft.setTextColor(textFg); // High-contrast crisp text
-  tft.setCursor(18, y + 13);
-  tft.print(labels[idx]);
+
+  int textLen = strlen(labels[idx]);
+  if (sel && textLen > 13) {
+    // Smooth Marquee Ticker Scroll for long labels!
+    int startX = 18 - scrollOffset;
+    tft.setCursor(startX, y + 13);
+    tft.print(labels[idx]);
+  } else {
+    tft.setCursor(18, y + 13);
+    tft.print(labels[idx]);
+  }
 }
 
 void updateSubMenuSelection(const char** labels, int oldSel, int newSel) {
@@ -2773,6 +2846,98 @@ void drawI2cDiagData() {
   tft.fillRect(valX, cardY + 98, valW, 10, C_BK);
   tft.setCursor(valX, cardY + 100);
   tft.printf("%-10d", emptyStockDepthMm);
+}
+
+// -------------------------------------------------------------
+//  RAINBOW RGB LED, STEALTH COMBO & SCREENSAVER ENGINE
+// -------------------------------------------------------------
+void updateRainbowRgbLed() {
+  static float hue = 0.0;
+  static unsigned long lastRainbowMs = 0;
+  if (millis() - lastRainbowMs < 40) return;
+  lastRainbowMs = millis();
+
+  hue += 0.005; // Slow aesthetic rotation
+  if (hue >= 1.0) hue = 0.0;
+
+  float h = hue;
+  float q = 0.5 * (1.0 + 1.0);
+  float p = 2.0 * 0.5 - q;
+
+  auto hueToRgb = [](float p, float q, float t) -> float {
+    if (t < 0.0f) t += 1.0f;
+    if (t > 1.0f) t -= 1.0f;
+    if (t < 1.0f/6.0f) return p + (q - p) * 6.0f * t;
+    if (t < 1.0f/2.0f) return q;
+    if (t < 2.0f/3.0f) return p + (q - p) * (2.0f/3.0f - t) * 6.0f;
+    return p;
+  };
+
+  uint8_t r = (uint8_t)(hueToRgb(p, q, h + 1.0/3.0) * 160);
+  uint8_t g = (uint8_t)(hueToRgb(p, q, h) * 160);
+  uint8_t b = (uint8_t)(hueToRgb(p, q, h - 1.0/3.0) * 160);
+
+  setRgbLed(r, g, b);
+}
+
+void processStealthCombo(bool isK0, bool isKnob) {
+  unsigned long now = millis();
+  if (comboStartMs == 0 || now - comboStartMs > 5000) {
+    comboStartMs = now;
+    comboK0Count = 0;
+    comboKnobCount = 0;
+  }
+
+  if (isK0)   comboK0Count++;
+  if (isKnob) comboKnobCount++;
+
+  if (comboK0Count >= 2 && comboKnobCount >= 2) {
+    comboK0Count = 0;
+    comboKnobCount = 0;
+    comboStartMs = 0;
+
+    isStealthMode = !isStealthMode;
+    if (isStealthMode) {
+      digitalWrite(TFT_BLK, LOW); // Turn OFF backlight
+      tft.fillScreen(C_BK);
+      setRgbLed(0, 0, 0);
+      stopCoils();
+      beep(1200, 50); delay(60); beep(800, 100);
+    } else {
+      digitalWrite(TFT_BLK, HIGH); // Turn ON backlight
+      beep(800, 50); delay(60); beep(1600, 100);
+      curScreen = SCR_STANDBY;
+      standbyScreen();
+    }
+  }
+}
+
+void runScreensaverFrame() {
+  static float ax = 0.0, ay = 0.0;
+  static int prevX[6] = {0}, prevY[6] = {0};
+  static unsigned long lastFrameMs = 0;
+
+  if (curScreen != SCR_SCREENSAVER) return;
+
+  if (millis() - lastFrameMs >= 30) {
+    lastFrameMs = millis();
+    int cx = SW / 2;
+    int cy = SH / 2 - 10;
+
+    eraseOctahedron(prevX, prevY);
+    ax += 0.03;
+    ay += 0.05;
+    drawOctahedron(ax, ay, cx, cy, C_CY, prevX, prevY);
+
+    tft.setTextSize(1);
+    tft.setTextColor(C_GL, C_BK);
+    tft.setCursor(SW / 2 - 54, SH - 30);
+    tft.print("AETHER SCREENSAVER");
+
+    tft.setTextColor(C_CY, C_BK);
+    tft.setCursor(SW / 2 - 60, SH - 16);
+    tft.print("Press K0 / Scan Card");
+  }
 }
 
 void drawAdminSetupScreen() {
