@@ -2976,7 +2976,6 @@ void runScreensaverFrame() {
     if (elapsed >= 1200) {
       savState = 1; // Transition to Hold & Rotate
       stateStartMs = millis();
-      beep(2400, 80); // Strike Collision Sound Chime
       tft.fillScreen(C_BK);
     }
   }
@@ -3010,7 +3009,6 @@ void runScreensaverFrame() {
     if (elapsed >= 2500) {
       savState = 2; // Transition to Shatter
       stateStartMs = millis();
-      beep(1500, 60);
     }
   }
   // -------------------------------------------------------------------
