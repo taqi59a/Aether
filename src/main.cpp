@@ -1813,26 +1813,31 @@ void standbyScreen() {
   uint16_t bg = getBgColor();
   tft.fillScreen(bg);
   
-  // High-Contrast Header Bar
-  tft.fillRect(0, 0, SW, 50, isDarkTheme ? tft.color565(15, 22, 40) : tft.color565(255, 235, 245));
-  tft.drawFastHLine(0, 50, SW, C_CY);
+  // Solid Bright White Header Box with Cyan Border
+  tft.fillRect(0, 0, SW, 52, C_WH);
+  tft.drawFastHLine(0, 52, SW, C_CY);
 
-  // Large Bold "AETHER" Logo Title (Gold Text with High Contrast Shadow)
-  drawLogoText("AETHER", SW / 2 - 54, 10, 3);
+  // Solid Crisp Black "AETHER" Logo Title (Text Size 3, 100% Solid Black!)
+  tft.setTextSize(3);
+  tft.setTextColor(C_BK);
+  tft.setCursor(SW / 2 - 52, 10);
+  tft.print("AETHER");
 
+  // Solid Black Subtitle Text
   tft.setTextSize(1);
-  tft.setTextColor(isDarkTheme ? C_CY : C_MG);
-  tft.setCursor(44, 35);
+  tft.setTextColor(C_BK);
+  tft.setCursor(44, 36);
   tft.print("VENDING CARE #5552");
 
   int qrX = (SW - 29 * 7) / 2;
-  int qrY = 62;
+  int qrY = 64;
   drawQRCode(qrX, qrY, 7);
 
-  // High-contrast bottom callout
+  // High-contrast bottom callout banner
+  tft.fillRect(0, SH - FTR_H, SW, FTR_H, getFooterBg());
   tft.setTextSize(1);
   tft.setTextColor(getTextMain());
-  tft.setCursor(14, SH - 22);
+  tft.setCursor(20, SH - 16);
   tft.print("SCAN QR OR TAP RFID CARD");
 
   pwReset();
@@ -2913,30 +2918,125 @@ void processStealthCombo(bool isK0, bool isKnob) {
 }
 
 void runScreensaverFrame() {
-  static float ax = 0.0, ay = 0.0;
-  static int prevX[6] = {0}, prevY[6] = {0};
-  static unsigned long lastFrameMs = 0;
-
   if (curScreen != SCR_SCREENSAVER) return;
 
-  if (millis() - lastFrameMs >= 30) {
-    lastFrameMs = millis();
-    int cx = SW / 2;
-    int cy = SH / 2 - 10;
+  static unsigned long stateStartMs = 0;
+  static int savState = 0; // 0 = Strike, 1 = Hold/Rotate, 2 = Shatter
+  static float angle = 0.0;
+  static unsigned long lastFrameMs = 0;
 
-    eraseOctahedron(prevX, prevY);
-    ax += 0.03;
-    ay += 0.05;
-    drawOctahedron(ax, ay, cx, cy, C_CY, prevX, prevY);
+  if (millis() - lastFrameMs < 30) return;
+  lastFrameMs = millis();
 
-    tft.setTextSize(1);
+  int cx = SW / 2;
+  int cy = SH / 2;
+
+  if (stateStartMs == 0) {
+    stateStartMs = millis();
+    savState = 0;
+    tft.fillScreen(C_BK);
+  }
+
+  unsigned long elapsed = millis() - stateStartMs;
+
+  // -------------------------------------------------------------------
+  // PHASE 0: BLUE & YELLOW LINES STRIKE TOGETHER IN CENTER (1.2 seconds)
+  // -------------------------------------------------------------------
+  if (savState == 0) {
+    float progress = (float)elapsed / 1200.0;
+    if (progress > 1.0) progress = 1.0;
+
+    tft.fillScreen(C_BK);
+
+    // 4 Corner Positions
+    int xTL = (int)(0 + progress * cx);
+    int yTL = (int)(0 + progress * cy);
+
+    int xTR = (int)(SW - progress * cx);
+    int yTR = (int)(0 + progress * cy);
+
+    int xBL = (int)(0 + progress * cx);
+    int yBL = (int)(SH - progress * cy);
+
+    int xBR = (int)(SW - progress * cx);
+    int yBR = (int)(SH - progress * cy);
+
+    // Blue (Cyan) Energy Lines from Top Corners
+    tft.drawLine(0, 0, xTL, yTL, C_CY);
+    tft.drawLine(SW, 0, xTR, yTR, C_CY);
+
+    // Yellow (Gold) Energy Lines from Bottom Corners
+    tft.drawLine(0, SH, xBL, yBL, C_GL);
+    tft.drawLine(SW, SH, xBR, yBR, C_GL);
+
+    // Center Energy Strike Core
+    int r = (int)(progress * 18.0);
+    tft.drawCircle(cx, cy, r, (r % 2 == 0) ? C_WH : C_CY);
+
+    if (elapsed >= 1200) {
+      savState = 1; // Transition to Hold & Rotate
+      stateStartMs = millis();
+      beep(2400, 80); // Strike Collision Sound Chime
+      tft.fillScreen(C_BK);
+    }
+  }
+  // -------------------------------------------------------------------
+  // PHASE 1: "AETHER" FORMS & HOLDS FOR 2.5 SECONDS WITH ROTATING RING
+  // -------------------------------------------------------------------
+  else if (savState == 1) {
+    angle += 0.08;
+    tft.fillRect(cx - 65, cy - 40, 130, 80, C_BK);
+
+    // Dynamic Rotating Cyber Ring around AETHER
+    for (int i = 0; i < 4; i++) {
+      float a = angle + (i * M_PI_2);
+      int rx = cx + (int)(44.0 * cos(a));
+      int ry = cy + (int)(32.0 * sin(a));
+      tft.fillCircle(rx, ry, 3, (i % 2 == 0) ? C_CY : C_GL);
+    }
+
+    // Centered Glowing "AETHER" Logo (Bold Text Size 3)
+    tft.setTextSize(3);
     tft.setTextColor(C_GL, C_BK);
-    tft.setCursor(SW / 2 - 54, SH - 30);
-    tft.print("AETHER SCREENSAVER");
+    tft.setCursor(cx - 52, cy - 12);
+    tft.print("AETHER");
 
+    // Subtitle Callout
+    tft.setTextSize(1);
     tft.setTextColor(C_CY, C_BK);
-    tft.setCursor(SW / 2 - 60, SH - 16);
-    tft.print("Press K0 / Scan Card");
+    tft.setCursor(cx - 54, cy + 22);
+    tft.print("QUANTUM CARE SYSTEM");
+
+    if (elapsed >= 2500) {
+      savState = 2; // Transition to Shatter
+      stateStartMs = millis();
+      beep(1500, 60);
+    }
+  }
+  // -------------------------------------------------------------------
+  // PHASE 2: BREAKING / SHATTERING INTO LIGHT PARTICLES (1.2 seconds)
+  // -------------------------------------------------------------------
+  else if (savState == 2) {
+    float progress = (float)elapsed / 1200.0;
+    if (progress > 1.0) progress = 1.0;
+
+    tft.fillScreen(C_BK);
+
+    // 12 Shattered Light Particles flying back to corners
+    for (int i = 0; i < 12; i++) {
+      float a = i * (2.0 * M_PI / 12.0);
+      float dist = progress * 140.0;
+      int px = cx + (int)(dist * cos(a));
+      int py = cy + (int)(dist * sin(a));
+      uint16_t col = (i % 2 == 0) ? C_CY : C_GL;
+      tft.fillCircle(px, py, 3, col);
+      tft.drawLine(cx, cy, px, py, col);
+    }
+
+    if (elapsed >= 1200) {
+      savState = 0; // Seamless Loop back to Phase 0 (Convergence)!
+      stateStartMs = millis();
+    }
   }
 }
 
