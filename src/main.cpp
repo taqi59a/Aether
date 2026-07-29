@@ -2946,34 +2946,197 @@ void processStealthCombo(bool isK0, bool isKnob) {
 }
 
 // -------------------------------------------------------------
-//  FULL-COLOR HIGH-RESOLUTION REAL VIDEO PLAYER ENGINE
+//  VIBRANT 3D CYBER MATRIX & PLASMA CORE VIDEO ENGINE
 // -------------------------------------------------------------
-void playFullVideoFrame() {
-  tft.setAddrWindow(0, 0, MOBILE_VIDEO_WIDTH, MOBILE_VIDEO_HEIGHT);
-  tft.startWrite();
-  size_t totalPixels = (size_t)MOBILE_VIDEO_WIDTH * MOBILE_VIDEO_HEIGHT;
-  size_t arrayLen = sizeof(Colorful_Animated_Good_Morning_Mobile_Video) / sizeof(uint32_t);
-  
-  for (size_t i = 0; i < totalPixels; i++) {
-    uint32_t rgb = pgm_read_dword(&Colorful_Animated_Good_Morning_Mobile_Video[i % arrayLen]);
-    uint8_t r = (rgb >> 16) & 0xFF;
-    uint8_t g = (rgb >> 8) & 0xFF;
-    uint8_t b = rgb & 0xFF;
-    uint16_t color565 = tft.color565(r, g, b);
-    tft.pushColor(color565);
+struct StarParticle {
+  float x, y, z;
+};
+const int NUM_STARS = 24;
+StarParticle stars[NUM_STARS];
+bool starsInited = false;
+
+void initStarfield() {
+  for (int i = 0; i < NUM_STARS; i++) {
+    stars[i].x = (float)(random(-110, 110));
+    stars[i].y = (float)(random(-110, 110));
+    stars[i].z = (float)(random(10, 180));
   }
-  tft.endWrite();
+  starsInited = true;
 }
 
 void runScreensaverFrame() {
   if (curScreen != SCR_SCREENSAVER) return;
 
+  static unsigned long stateStartMs = 0;
+  static int savState = 0; // 0 = Plasma Core, 1 = Hologram Orbit, 2 = Particle Burst
+  static float angle = 0.0;
   static unsigned long lastFrameMs = 0;
-  if (millis() - lastFrameMs < 40) return;
+
+  if (millis() - lastFrameMs < 35) return;
   lastFrameMs = millis();
 
-  // Render Real Full-Color Video Animation directly on ST7789 TFT LCD!
-  playFullVideoFrame();
+  int cx = SW / 2;
+  int cy = SH / 2 - 10;
+
+  if (!starsInited) initStarfield();
+
+  if (stateStartMs == 0) {
+    stateStartMs = millis();
+    savState = 0;
+    tft.fillScreen(C_BK);
+  }
+
+  unsigned long elapsed = millis() - stateStartMs;
+
+  static int pSx[NUM_STARS] = {0}, pSy[NUM_STARS] = {0};
+  static int pR = 0;
+  static int pRx[6] = {0}, pRy[6] = {0};
+  static int pPx[12] = {0}, pPy[12] = {0};
+  static bool phase1Init = false;
+
+  // -------------------------------------------------------------------
+  // PHASE 0: 3D PLASMA CORE & WARP STARFIELD STREAM (1.6s)
+  // -------------------------------------------------------------------
+  if (savState == 0) {
+    phase1Init = false;
+    float progress = (float)elapsed / 1600.0;
+    if (progress > 1.0) progress = 1.0;
+
+    // Erase previous starfield particles in C_BK
+    for (int i = 0; i < NUM_STARS; i++) {
+      if (pSx[i] > 0 && pSy[i] > 0) {
+        tft.drawPixel(pSx[i], pSy[i], C_BK);
+      }
+    }
+
+    // Erase previous hexagon core
+    if (pR > 0) drawHexagon(cx, cy, pR, C_BK);
+    pR = (int)(progress * 38.0);
+
+    // Update & draw 3D Warp Starfield stream
+    for (int i = 0; i < NUM_STARS; i++) {
+      stars[i].z -= 7.0f;
+      if (stars[i].z <= 2.0f) {
+        stars[i].x = (float)(random(-110, 110));
+        stars[i].y = (float)(random(-110, 110));
+        stars[i].z = 180.0f;
+      }
+      int sx = cx + (int)(stars[i].x * 120.0f / stars[i].z);
+      int sy = cy + (int)(stars[i].y * 120.0f / stars[i].z);
+      if (sx >= 0 && sx < SW && sy >= 0 && sy < SH) {
+        tft.drawPixel(sx, sy, (i % 2 == 0) ? C_CY : C_GL);
+        pSx[i] = sx;
+        pSy[i] = sy;
+      }
+    }
+
+    // Draw central pulsing Hexagon Core
+    drawHexagon(cx, cy, pR, C_CY);
+    drawHudBrackets();
+
+    if (elapsed >= 1600) {
+      savState = 1;
+      stateStartMs = millis();
+      tft.fillScreen(C_BK);
+    }
+  }
+  // -------------------------------------------------------------------
+  // PHASE 1: HUGE "AETHER" LOGO & 3D ORBITING PLASMA FLARES (3.0s)
+  // -------------------------------------------------------------------
+  else if (savState == 1) {
+    if (!phase1Init) {
+      phase1Init = true;
+      tft.fillScreen(C_BK);
+
+      drawHudBrackets();
+
+      // Draw background Cyberpunk Hexagon Grid Mesh
+      drawHexagon(cx - 72, cy - 32, 22, 0x10A4);
+      drawHexagon(cx + 72, cy - 32, 22, 0x10A4);
+      drawHexagon(cx - 72, cy + 32, 22, 0x10A4);
+      drawHexagon(cx + 72, cy + 32, 22, 0x10A4);
+
+      // Draw Static Huge "AETHER" Logo ONCE (Text Size 4 = 144px width = ~80% SW)
+      tft.setTextSize(4);
+      tft.setTextColor(C_GL, C_BK);
+      tft.setCursor(cx - 70, cy - 16);
+      tft.print("AETHER");
+
+      // Draw Static Instruction Banners ONCE
+      tft.setTextSize(1);
+      tft.setTextColor(C_CY, C_BK);
+      tft.setCursor(cx - 48, SH - 36);
+      tft.print("TAP ACCESS CARD");
+
+      tft.setTextColor(getAccentGold(), C_BK);
+      tft.setCursor(cx - 78, SH - 20);
+      tft.print("OR PRESS TOP BUTTON FOR QR");
+
+      for (int i = 0; i < 6; i++) {
+        pRx[i] = 0; pRy[i] = 0;
+      }
+    }
+
+    angle += 0.06;
+
+    // Erase previous 6 hexagon satellite nodes in C_BK
+    for (int i = 0; i < 6; i++) {
+      if (pRx[i] != 0 && pRy[i] != 0) {
+        drawHexagon(pRx[i], pRy[i], 6, C_BK);
+      }
+    }
+
+    // Draw new 6 orbiting hexagon satellite nodes
+    for (int i = 0; i < 6; i++) {
+      float a = angle + (i * M_PI / 3.0);
+      int rx = cx + (int)(94.0 * cos(a));
+      int ry = cy + (int)(44.0 * sin(a));
+      uint16_t nodeCol = (i % 2 == 0) ? C_CY : 0xF81F; // Light Blue Cyan & Magenta
+      drawHexagon(rx, ry, 6, nodeCol);
+      pRx[i] = rx;
+      pRy[i] = ry;
+    }
+
+    if (elapsed >= 3000) {
+      savState = 2;
+      stateStartMs = millis();
+    }
+  }
+  // -------------------------------------------------------------------
+  // PHASE 2: QUANTUM PARTICLE DISPERSION BURST (1.4s)
+  // -------------------------------------------------------------------
+  else if (savState == 2) {
+    float progress = (float)elapsed / 1400.0;
+    if (progress > 1.0) progress = 1.0;
+
+    // Erase previous 12 particles & lines
+    for (int i = 0; i < 12; i++) {
+      if (pPx[i] != 0 || pPy[i] != 0) {
+        tft.fillCircle(pPx[i], pPy[i], 3, C_BK);
+        tft.drawLine(cx, cy, pPx[i], pPy[i], C_BK);
+      }
+    }
+
+    // Draw new 12 particles & lines
+    for (int i = 0; i < 12; i++) {
+      float a = i * (2.0 * M_PI / 12.0);
+      float dist = progress * 150.0;
+      int px = cx + (int)(dist * cos(a));
+      int py = cy + (int)(dist * sin(a));
+      uint16_t col = (i % 2 == 0) ? C_CY : C_GL;
+      tft.fillCircle(px, py, 3, col);
+      tft.drawLine(cx, cy, px, py, col);
+      pPx[i] = px;
+      pPy[i] = py;
+    }
+
+    if (elapsed >= 1400) {
+      savState = 0;
+      stateStartMs = millis();
+      tft.fillScreen(C_BK);
+      for (int i = 0; i < 12; i++) { pPx[i] = 0; pPy[i] = 0; }
+    }
+  }
 }
 
 void drawAdminSetupScreen() {
