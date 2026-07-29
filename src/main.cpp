@@ -1749,69 +1749,74 @@ void startup() {
   tft.setCursor(24, 210);
   tft.print("Brussels Project");
   
-  delay(1500);
+  delay(1200);
 
-  // --- 3D Rotating Octahedron HUD & All Sound Animations ---
+  // --- CYBERPUNK WARP TUNNEL & HEXAGON CORE STARTUP ANIMATION ---
   tft.fillScreen(C_BK);
   int cx = SW / 2;
-  int cy = SH / 2 - 20;
+  int cy = SH / 2 - 10;
 
   drawHudBrackets();
-  beep(150, 150);
-  delay(100);
-  beep(220, 200);
 
-  long start = millis();
-  float ax = 0.0, ay = 0.0;
-  int prevX[6] = {0}, prevY[6] = {0};
-  
-  while (millis() - start < 1500) {
-    eraseOctahedron(prevX, prevY);
-    ax += 0.04;
-    ay += 0.06;
-    drawOctahedron(ax, ay, cx, cy, C_CY, prevX, prevY);
+  // 1. Cyber Warp Tunnel Lines converging into center
+  for (int step = 0; step < 25; step++) {
+    float progress = (float)step / 25.0;
+    int r = (int)(progress * 48.0);
+    
+    drawHexagon(cx, cy, r, C_CY);
+    tft.drawLine(0, 0, (int)(progress * cx), (int)(progress * cy), C_CY);
+    tft.drawLine(SW, 0, (int)(SW - progress * cx), (int)(progress * cy), C_CY);
+    tft.drawLine(0, SH, (int)(progress * cx), (int)(SH - progress * cy), C_GL);
+    tft.drawLine(SW, SH, (int)(SW - progress * cx), (int)(SH - progress * cy), C_GL);
+
+    beep(300 + step * 40, 12);
+    delay(25);
+  }
+
+  // 2. Glowing Core Burst
+  for (int r = 10; r < 75; r += 12) {
+    drawHexagon(cx, cy, r, C_WH);
+    beep(1200 + r * 15, 10);
     delay(20);
+    drawHexagon(cx, cy, r, C_BK);
   }
 
-  for (int r = 10; r < 75; r += 10) {
-    tft.drawCircle(cx, cy, r, C_CY);
-    beep(400 + r * 10, 8);
-    delay(12);
-    tft.drawCircle(cx, cy, r, C_BK);
-  }
   tft.fillScreen(C_BK);
-
   drawHudBrackets();
+
+  // 3. Huge Holographic "AETHER" Logo Scan-in
   const char* txt = "AETHER";
   int tx = cx - 54;
-  int ty = cy + 20;
+  int ty = cy - 10;
   
-  for (int x = tx - 10; x < tx + 120; x += 6) {
-    tft.drawFastVLine(x, ty - 2, 28, C_WH);
+  for (int x = tx - 10; x < tx + 120; x += 8) {
+    tft.drawFastVLine(x, ty - 4, 32, C_WH);
     beep(1000 + x * 4, 8);
-    delay(12);
+    delay(15);
     drawLogoText(txt, tx, ty, 3);
-    tft.drawFastVLine(x, ty - 2, 28, C_BK);
+    tft.drawFastVLine(x, ty - 4, 32, C_BK);
   }
   noTone(BUZZER_PIN);
   drawLogoText(txt, tx, ty, 3);
 
+  // 4. Typewriter Subtitle Text
   tft.setTextSize(1);
   tft.setTextColor(C_GL);
-  tft.setCursor(57, ty + 30);
-  const char* sub = "VENDING MACHINE #5552";
+  tft.setCursor(44, ty + 32);
+  const char* sub = "VENDING CARE SYSTEM #5552";
   for (int i = 0; i < strlen(sub); i++) {
     tft.print(sub[i]);
     beep(2000, 6);
     delay(15);
   }
   
+  // 5. High-Tech Cyber Progress Bar
   int ly = SH - 25;
   tft.drawRoundRect(20, ly, SW - 40, 8, 4, C_DG);
   for (int i = 0; i < 10; i++) {
     tft.fillRect(24 + i * 20, ly + 2, 16, 4, C_CY);
     beep(600 + i * 70, 15);
-    delay(60);
+    delay(50);
   }
   
   beep(880, 80);
