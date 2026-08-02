@@ -1521,20 +1521,18 @@ void loop() {
       lastStockRefreshMs = millis();
       drawStockData();
     }
-    if (abs(diff) >= 2) {
-      int clicks = diff / 2;
-      lastEnc = encCount;
-      emptyStockDepthMm += (clicks != 0 ? clicks * 5 : (diff > 0 ? 5 : -5));
-      emptyStockDepthMm = constrain(emptyStockDepthMm, 50, 500);
-      saveStockPreferences();
-      drawStockData();
-    }
     if (psh) {
       delay(150);
       if (calibrateZeroStockLimit()) {
         beep(1800, 100);
       }
       drawStockScreen();
+    }
+    if (k0) {
+      delay(150);
+      stockFrameDrawn = false;
+      curScreen = SCR_MENU;
+      menuFull();
     }
   }
   else if (curScreen == SCR_DIAG_TOF) {
@@ -3052,28 +3050,27 @@ void drawI2cDiagData() {
 void updateRainbowRgbLed() {
   static float hue = 0.0;
   static unsigned long lastRainbowMs = 0;
-  if (millis() - lastRainbowMs < 40) return;
+  if (millis() - lastRainbowMs < 20) return; // 50Hz smooth updates
   lastRainbowMs = millis();
 
-  hue += 0.005; // Slow aesthetic rotation
+  hue += 0.01; // Smooth aesthetic rotation
   if (hue >= 1.0) hue = 0.0;
 
-  float h = hue;
-  float q = 0.5 * (1.0 + 1.0);
-  float p = 2.0 * 0.5 - q;
+  float h = hue * 6.0;
+  int i = floor(h);
+  float f = h - i;
+  uint8_t q = (uint8_t)(255 * (1.0 - f));
+  uint8_t t = (uint8_t)(255 * f);
 
-  auto hueToRgb = [](float p, float q, float t) -> float {
-    if (t < 0.0f) t += 1.0f;
-    if (t > 1.0f) t -= 1.0f;
-    if (t < 1.0f/6.0f) return p + (q - p) * 6.0f * t;
-    if (t < 1.0f/2.0f) return q;
-    if (t < 2.0f/3.0f) return p + (q - p) * (2.0f/3.0f - t) * 6.0f;
-    return p;
-  };
-
-  uint8_t r = (uint8_t)(hueToRgb(p, q, h + 1.0/3.0) * 160);
-  uint8_t g = (uint8_t)(hueToRgb(p, q, h) * 160);
-  uint8_t b = (uint8_t)(hueToRgb(p, q, h - 1.0/3.0) * 160);
+  uint8_t r = 0, g = 0, b = 0;
+  switch (i % 6) {
+    case 0: r = 255; g = t;   b = 0;   break;
+    case 1: r = q;   g = 255; b = 0;   break;
+    case 2: r = 0;   g = 255; b = t;   break;
+    case 3: r = 0;   g = q;   b = 255; break;
+    case 4: r = t;   g = 0;   b = 255; break;
+    case 5: r = 255; g = 0;   b = q;   break;
+  }
 
   setRgbLed(r, g, b);
 }
@@ -3131,6 +3128,7 @@ void initStarfield() {
 
 void runScreensaverFrame() {
   if (curScreen != SCR_SCREENSAVER) return;
+  updateRainbowRgbLed();
 
   static unsigned long stateStartMs = 0;
   static int savState = 0; // 0 = Plasma Core, 1 = Hologram Orbit, 2 = Particle Burst
