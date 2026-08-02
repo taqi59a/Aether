@@ -601,24 +601,34 @@ int readFilteredStockDistanceMm() {
 
 bool calibrateZeroStockLimit() {
   int curDist = readFilteredStockDistanceMm();
-  if (curDist > 10) {
-    emptyStockDepthMm = curDist;
-    saveStockPreferences();
-    Serial.printf("ZERO STOCK CALIBRATED & SAVED TO NVS: %d mm\n", emptyStockDepthMm);
-    return true;
+  if (curDist <= 0 || curDist == 255) {
+    curDist = 250; // Max default empty depth threshold
   }
-  return false;
+  emptyStockDepthMm = curDist;
+  saveStockPreferences(); // Saved permanently in NVS Flash memory & RAM!
+  Serial.printf("ZERO STOCK CALIBRATED & SAVED TO NVS: %d mm\n", emptyStockDepthMm);
+  return true;
 }
 
 int getStockPercentage() {
-  int dist = readLiveStockDistanceMm();
-  if (dist < 0) return 0;
-  if (dist >= emptyStockDepthMm) return 0;
-  if (dist <= fullStockDepthMm) return 100;
-  
+  if (!tofOnline) return 0;
+
+  int dist = readFilteredStockDistanceMm();
+
+  // 1. If sensor reads out-of-bounds (255 or <= 0 or >= emptyStockDepthMm), stack is EMPTY -> 0%!
+  if (dist <= 0 || dist >= emptyStockDepthMm || dist == 255) {
+    return 0;
+  }
+
+  // 2. If distance is at or below full threshold (20mm), stack is FULL -> 100%!
+  if (dist <= fullStockDepthMm) {
+    return 100;
+  }
+
+  // 3. Proportional Stock Calculation between Full (100%) and Zero Stock Limit (0%)
   int rangeSpan = emptyStockDepthMm - fullStockDepthMm;
   if (rangeSpan <= 0) return 0;
-  
+
   int pct = ((emptyStockDepthMm - dist) * 100) / rangeSpan;
   currentStockPercent = constrain(pct, 0, 100);
   return currentStockPercent;
