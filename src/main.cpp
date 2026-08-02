@@ -538,7 +538,7 @@ int readRawTofDistanceMm() {
   uint8_t range = vl6180x.readRange();
   uint8_t status = vl6180x.readRangeStatus();
   if (status == 0 && range > 0 && range < 255) {
-    liveStockDistanceMm = range * 2; // TOF050C scaling (1 unit = 2mm)
+    liveStockDistanceMm = range; // Raw mm distance (1 unit = 1mm)
     writeReg16(0x29, 0x0015, 0x07);  // Clear interrupt flag!
     return liveStockDistanceMm;
   }
@@ -562,7 +562,7 @@ int readRawTofDistanceMm() {
   writeReg16(0x29, 0x0015, 0x07);
 
   if (rawVal > 0 && rawVal < 255) {
-    liveStockDistanceMm = rawVal * 2;
+    liveStockDistanceMm = rawVal;
     return liveStockDistanceMm;
   }
 
@@ -601,9 +601,10 @@ int readFilteredStockDistanceMm() {
 
 bool calibrateZeroStockLimit() {
   int curDist = readFilteredStockDistanceMm();
-  if (curDist > 30) {
+  if (curDist > 10) {
     emptyStockDepthMm = curDist;
     saveStockPreferences();
+    Serial.printf("ZERO STOCK CALIBRATED & SAVED TO NVS: %d mm\n", emptyStockDepthMm);
     return true;
   }
   return false;
@@ -611,10 +612,14 @@ bool calibrateZeroStockLimit() {
 
 int getStockPercentage() {
   int dist = readLiveStockDistanceMm();
-  if (dist < 0) return 100; // Fallback
-  if (dist <= fullStockDepthMm) return 100;
+  if (dist < 0) return 0;
   if (dist >= emptyStockDepthMm) return 0;
-  int pct = map(dist, fullStockDepthMm, emptyStockDepthMm, 100, 0);
+  if (dist <= fullStockDepthMm) return 100;
+  
+  int rangeSpan = emptyStockDepthMm - fullStockDepthMm;
+  if (rangeSpan <= 0) return 0;
+  
+  int pct = ((emptyStockDepthMm - dist) * 100) / rangeSpan;
   currentStockPercent = constrain(pct, 0, 100);
   return currentStockPercent;
 }
@@ -1257,6 +1262,7 @@ void loop() {
   }
 
   if (curScreen == SCR_SCREENSAVER) {
+    updateRainbowRgbLed();
     runScreensaverFrame();
     return;
   }
