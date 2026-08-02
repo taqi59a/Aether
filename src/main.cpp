@@ -486,66 +486,107 @@ void saveStockPreferences() {
   prefs.end();
 }
 
+void writeReg16(uint8_t addr, uint16_t reg, uint8_t val) {
+  Wire.beginTransmission(addr);
+  Wire.write((uint8_t)(reg >> 8));
+  Wire.write((uint8_t)(reg & 0xFF));
+  Wire.write(val);
+  Wire.endTransmission();
+}
+
+uint8_t readReg16(uint8_t addr, uint16_t reg) {
+  Wire.beginTransmission(addr);
+  Wire.write((uint8_t)(reg >> 8));
+  Wire.write((uint8_t)(reg & 0xFF));
+  if (Wire.endTransmission() != 0) return 0xFF;
+  Wire.requestFrom(addr, (uint8_t)1);
+  if (Wire.available()) return Wire.read();
+  return 0xFF;
+}
+
 void initStockSensor() {
   Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
   Wire.setClock(100000); // 100kHz standard mode for long wires
   delay(30);
 
-  if (vl6180x.begin(&Wire)) {
-    tofOnline = true;
-    Serial.println("VL6180X / TOF050C Sensor Online on I2C (0x29)");
-    return;
-  }
-
-  // Direct I2C Probe for address 0x29
   Wire.beginTransmission(0x29);
   if (Wire.endTransmission() == 0) {
     tofOnline = true;
-    Serial.println("I2C Device detected at 0x29 (TOF050C Raw I2C)");
+    Serial.println("VL6180X / TOF050C Sensor Detected on I2C (0x29)");
+
+    // 1. Clear any pending interrupt status (SYSTEM__INTERRUPT_CLEAR 0x0015 = 0x07)
+    writeReg16(0x29, 0x0015, 0x07);
+
+    // 2. Set Max Convergence Time to 49ms (0x001C = 0x31) for deep 500mm stack readings
+    writeReg16(0x29, 0x001C, 0x31);
+
+    // 3. Set Inter-measurement Period to 100ms (0x001B = 0x09)
+    writeReg16(0x29, 0x001B, 0x09);
+
+    // 4. Initialize Adafruit library if available
+    vl6180x.begin(&Wire);
   } else {
     tofOnline = false;
     Serial.println("No I2C device response at 0x29 on GPIO 41/42");
   }
 }
 
-int readLiveStockDistanceMm() {
+int readRawTofDistanceMm() {
   if (!tofOnline) return -1;
 
+  // Try Adafruit library first
   uint8_t range = vl6180x.readRange();
-  if (range > 0 && range < 255) {
-    liveStockDistanceMm = range * 2; // TOF050C scaling
+  uint8_t status = vl6180x.readRangeStatus();
+  if (status == 0 && range > 0 && range < 255) {
+    liveStockDistanceMm = range * 2; // TOF050C scaling (1 unit = 2mm)
+    writeReg16(0x29, 0x0015, 0x07);  // Clear interrupt flag!
     return liveStockDistanceMm;
   }
 
-  // Raw Direct I2C Register Read Fallback for TOF050C
-  Wire.beginTransmission(0x29);
-  Wire.write(0x00);
-  Wire.write(0x1D);
-  if (Wire.endTransmission() == 0) {
-    Wire.requestFrom(0x29, (uint8_t)1);
-    if (Wire.available()) {
-      uint8_t rawByte = Wire.read();
-      if (rawByte > 0 && rawByte < 255) {
-        liveStockDistanceMm = rawByte * 2;
-        return liveStockDistanceMm;
-      }
-    }
+  // Raw Direct 16-Bit Register Measurement Trigger Sequence
+  // 1. Trigger single-shot measurement: SYSRANGE__START (0x0018) = 0x01
+  writeReg16(0x29, 0x0018, 0x01);
+
+  // 2. Wait up to 35ms for measurement complete (bit 2 of RESULT__INTERRUPT_STATUS_GPIO 0x004F)
+  unsigned long startMs = millis();
+  while (millis() - startMs < 35) {
+    uint8_t intStat = readReg16(0x29, 0x004F);
+    if ((intStat & 0x07) == 0x04) break;
+    delay(2);
   }
+
+  // 3. Read range value: RESULT__RANGE_VAL (0x0062)
+  uint8_t rawVal = readReg16(0x29, 0x0062);
+
+  // 4. Clear interrupt status: SYSTEM__INTERRUPT_CLEAR (0x0015) = 0x07
+  writeReg16(0x29, 0x0015, 0x07);
+
+  if (rawVal > 0 && rawVal < 255) {
+    liveStockDistanceMm = rawVal * 2;
+    return liveStockDistanceMm;
+  }
+
   return liveStockDistanceMm;
+}
+
+int readLiveStockDistanceMm() {
+  return readRawTofDistanceMm();
 }
 
 int readFilteredStockDistanceMm() {
   if (!tofOnline) return -1;
-  int samples[5];
+  int samples[7];
   int validCount = 0;
-  for (int i = 0; i < 5; i++) {
-    int d = readLiveStockDistanceMm();
+  for (int i = 0; i < 7; i++) {
+    int d = readRawTofDistanceMm();
     if (d > 0 && d < 600) {
       samples[validCount++] = d;
     }
     delay(10);
   }
-  if (validCount == 0) return readLiveStockDistanceMm();
+  if (validCount == 0) return readRawTofDistanceMm();
+
+  // 7-Point Median Sort
   for (int i = 0; i < validCount - 1; i++) {
     for (int j = i + 1; j < validCount; j++) {
       if (samples[i] > samples[j]) {
