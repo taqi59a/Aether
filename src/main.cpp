@@ -534,6 +534,40 @@ int readLiveStockDistanceMm() {
   return liveStockDistanceMm;
 }
 
+int readFilteredStockDistanceMm() {
+  if (!tofOnline) return -1;
+  int samples[5];
+  int validCount = 0;
+  for (int i = 0; i < 5; i++) {
+    int d = readLiveStockDistanceMm();
+    if (d > 0 && d < 600) {
+      samples[validCount++] = d;
+    }
+    delay(10);
+  }
+  if (validCount == 0) return readLiveStockDistanceMm();
+  for (int i = 0; i < validCount - 1; i++) {
+    for (int j = i + 1; j < validCount; j++) {
+      if (samples[i] > samples[j]) {
+        int temp = samples[i];
+        samples[i] = samples[j];
+        samples[j] = temp;
+      }
+    }
+  }
+  return samples[validCount / 2];
+}
+
+bool calibrateZeroStockLimit() {
+  int curDist = readFilteredStockDistanceMm();
+  if (curDist > 30) {
+    emptyStockDepthMm = curDist;
+    saveStockPreferences();
+    return true;
+  }
+  return false;
+}
+
 int getStockPercentage() {
   int dist = readLiveStockDistanceMm();
   if (dist < 0) return 100; // Fallback
@@ -779,6 +813,8 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
     executeGlobalMotorMove(mm);
   } else if (msg == "HOME" || msg == "CALIBRATE") {
     homing();
+  } else if (msg == "ZERO_STOCK" || msg == "CALIBRATE_ZERO") {
+    calibrateZeroStockLimit();
   } else if (msg == "SWEEP") {
     executeGlobalMotorMove(80);
     if (!stopNow) executeGlobalMotorMove(0);
@@ -1053,6 +1089,12 @@ void setup() {
     sendCorsHeaders();
     server.send(200, "application/json", "{\"status\":\"ok\"}");
     homing();
+  });
+  server.on("/api/calibrate_zero", []() {
+    sendCorsHeaders();
+    bool ok = calibrateZeroStockLimit();
+    String json = "{\"status\":\"" + String(ok ? "ok" : "error") + "\",\"empty_depth_mm\":" + String(emptyStockDepthMm) + "}";
+    server.send(200, "application/json", json);
   });
   server.on("/api/sweep", []() {
     sendCorsHeaders();
@@ -1427,14 +1469,15 @@ void loop() {
       lastEnc = encCount;
       emptyStockDepthMm += (clicks != 0 ? clicks * 5 : (diff > 0 ? 5 : -5));
       emptyStockDepthMm = constrain(emptyStockDepthMm, 50, 500);
+      saveStockPreferences();
       drawStockData();
     }
     if (psh) {
       delay(150);
-      saveStockPreferences();
-      stockFrameDrawn = false;
-      curScreen = SCR_MENU;
-      menuFull();
+      if (calibrateZeroStockLimit()) {
+        beep(1800, 100);
+      }
+      drawStockScreen();
     }
   }
   else if (curScreen == SCR_DIAG_TOF) {
@@ -2529,31 +2572,96 @@ void runDispenseWorkflow(const char* cardUid) {
   // Draw static Care frame ONCE on entry
   drawCareDispenseFrame();
 
-  // Phase 1: CARD AUTHENTICATION
+  // Phase 1: READ INITIAL DISTANCE (D_initial) & CHECK EMPTY STOCK
+  drawCareDispenseAnimation(cx, cy, 0.0, "CHECKING STOCK...", "Measuring ToF Sensor...");
+  int D_initial = readFilteredStockDistanceMm();
+
+  // Check Out of Stock: D_initial >= emptyStockDepthMm - 10mm
+  if (D_initial >= 0 && D_initial >= (emptyStockDepthMm - 10)) {
+    setRgbLed(255, 0, 0); // Red LED
+    beep(300, 300); // Alarm tone
+    drawCareDispenseAnimation(cx, cy, 0.0, "EMPTY STOCK!", "Machine Out of Stock");
+    delay(2500);
+    setRgbLed(0, 0, 0);
+    curScreen = SCR_STANDBY;
+    standbyScreen();
+    return;
+  }
+
+  // Phase 2: CARD AUTHENTICATION
   setRgbLed(0, 255, 0); // Green LED ON
   beep(1800, 50); delay(60); beep(2400, 80);
-  drawCareDispenseAnimation(cx, cy, 0.0, "CARD VERIFIED!", "Welcome! ❤️");
-  delay(300);
+  drawCareDispenseAnimation(cx, cy, 0.4, "CARD VERIFIED!", "Dispensing Pad... ❤️");
+  delay(200);
 
-  // Phase 2: MOTOR EXTENDING FORWARD (100% SILKY SMOOTH VIA UNIFIED MOTOR HANDLER)
-  setRgbLed(0, 255, 0);
-  beep(2000, 40); delay(50); beep(2200, 40);
-  drawCareDispenseAnimation(cx, cy, 0.8, "DISPENSING CARE...", "Just a moment for you!");
-
-  // Execute forward dispense movement with ZERO timing spikes!
+  // Phase 3: MOTOR EXTENDING FORWARD
+  drawCareDispenseAnimation(cx, cy, 0.8, "DISPENSING CARE...", "Actuating Slider Motor...");
   executeGlobalMotorMove(maxLimitMm);
+  delay(150);
 
-  // Phase 3: ITEM READY & MOTOR RETRACTING (100% SILKY SMOOTH VIA UNIFIED MOTOR HANDLER)
-  setRgbLed(255, 0, 0); // Red LED ON for retracting & item pickup
-  beep(1200, 80); delay(90); beep(1800, 80); delay(90); beep(2400, 150);
-  drawCareDispenseAnimation(cx, cy, 1.6, "PLEASE TAKE ITEM", "Prepared with Care ❤️");
+  // Phase 4: READ FINAL DISTANCE (D_final) & CALCULATE DELTA
+  int D_final = readFilteredStockDistanceMm();
+  int deltaMm = D_final - D_initial;
+  Serial.printf("TOF VEND EVAL: D_init=%d mm, D_final=%d mm, Delta=%d mm\n", D_initial, D_final, deltaMm);
 
-  // Execute reverse retract movement with ZERO timing spikes!
+  bool vendOk = false;
+  bool isJamRetried = false;
+
+  // Check 1: Unstable Drop / Negative Delta -> Re-sample after 200ms settlement
+  if (deltaMm < 0) {
+    drawCareDispenseAnimation(cx, cy, 1.0, "RE-SAMPLING...", "Settling stack...");
+    delay(200);
+    D_final = readFilteredStockDistanceMm();
+    deltaMm = D_final - D_initial;
+  }
+
+  // Check 2: Valid Drop (0.7cm to 2.5cm = 7mm to 25mm drop)
+  if (deltaMm >= 7 && deltaMm <= 25) {
+    vendOk = true;
+  } 
+  // Check 3: Sensor offline or minor tolerance fallback (4mm to 30mm)
+  else if (!tofOnline || (deltaMm >= 4 && deltaMm <= 30)) {
+    vendOk = true;
+  }
+  // Check 4: Jam / Mechanical Failure (Delta < 5mm) -> RETRY CLEARANCE!
+  else if (deltaMm < 5) {
+    isJamRetried = true;
+    setRgbLed(255, 180, 0); // Gold warning LED
+    beep(1000, 100);
+    drawCareDispenseAnimation(cx, cy, 1.2, "JAM DETECTED!", "RETRYING CLEARING JAM...");
+    
+    // Rapid clearing pulse: retract 10mm and push forward rapidly
+    executeGlobalMotorMove(maxLimitMm - 10);
+    delay(60);
+    executeGlobalMotorMove(maxLimitMm);
+    delay(150);
+
+    // Re-sample ToF distance after retry
+    int D_retry = readFilteredStockDistanceMm();
+    int retryDelta = D_retry - D_initial;
+    if (retryDelta >= 5) {
+      vendOk = true;
+      drawCareDispenseAnimation(cx, cy, 1.4, "JAM CLEARED!", "Pad Successfully Dropped!");
+      delay(300);
+    }
+  }
+
+  // Phase 5: RETRACT MOTOR TO HOME
+  drawCareDispenseAnimation(cx, cy, 1.6, vendOk ? "PLEASE TAKE ITEM" : "RETRACTING SLIDER", vendOk ? "Prepared with Care ❤️" : "Clearing slider...");
   executeGlobalMotorMove(0);
 
-  // Phase 4: DISPENSE COMPLETE & SUCCESS CHIME
-  drawCareDispenseAnimation(cx, cy, 2.4, "HAVE A GREAT DAY!", "You are wonderful! ✨");
-  delay(800);
+  // Phase 6: FINAL STATUS DISPLAY
+  if (vendOk) {
+    setRgbLed(0, 255, 0);
+    beep(1200, 80); delay(90); beep(1800, 80); delay(90); beep(2400, 150);
+    drawCareDispenseAnimation(cx, cy, 2.4, isJamRetried ? "JAM CLEARED! SUCCESS" : "VEND SUCCESSFUL!", "Have a Great Day! ✨");
+    delay(1800);
+  } else {
+    setRgbLed(255, 0, 0);
+    beep(400, 150); delay(100); beep(300, 250);
+    drawCareDispenseAnimation(cx, cy, 2.4, "MACHINE JAMMED!", "Mechanical Jam Detected");
+    delay(2500);
+  }
 
   setRgbLed(0, 0, 0); // LED OFF
   curScreen = SCR_STANDBY;

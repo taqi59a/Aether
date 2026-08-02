@@ -510,6 +510,10 @@ body {
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
                     <span>Diagnostic Sweep</span>
                 </button>
+                <button class="btn btn-action" id="btnZeroStock" style="background: rgba(255, 183, 3, 0.15); border-color: rgba(255, 183, 3, 0.4); color: var(--accent-gold);">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M12 8v8M8 12h8"></path></svg>
+                    <span>Set Zero Stock</span>
+                </button>
             </div>
             <button class="btn btn-danger btn-stop" id="btnStop">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><rect x="9" y="9" width="6" height="6"></rect></svg>
@@ -720,6 +724,18 @@ document.addEventListener('DOMContentLoaded', () => {
     btnSweep.addEventListener('click', () => {
         sendMqttCommand('SWEEP');
     });
+
+    const btnZeroStock = document.getElementById('btnZeroStock');
+    if (btnZeroStock) {
+        btnZeroStock.addEventListener('click', () => {
+            sendMqttCommand('ZERO_STOCK');
+            fetch('/api/calibrate_zero').then(r => r.json()).then(data => {
+                logConsole(`Zero Stock Calibration Complete! Limit set to ${data.empty_depth_mm} mm`, 'success');
+            }).catch(e => {
+                logConsole('Calibrated Zero Stock via Cloud Command.', 'info');
+            });
+        });
+    }
 
     btnStop.addEventListener('click', () => {
         sendMqttCommand('STOP');
