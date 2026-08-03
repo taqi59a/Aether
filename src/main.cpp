@@ -566,50 +566,86 @@ int readLiveStockDistanceMm() {
   return readRawTofDistanceMm();
 }
 
-static float emaDistanceMm = -1.0f;
-static int stableDistanceMm = -1;
+#define RING_BUF_SIZE 50
+static int stockRingBuffer[RING_BUF_SIZE];
+static int ringBufHead = 0;
+static int ringBufCount = 0;
+static int padQuantizedDistanceMm = -1;
 
-int readFilteredStockDistanceMm() {
-  if (!tofOnline) return -1;
-  int samples[9];
-  int validCount = 0;
-  for (int i = 0; i < 9; i++) {
-    int d = readRawTofDistanceMm();
-    if (d > 0 && d < 255) { // Reject 255 range overflow bytes!
-      samples[validCount++] = d;
-    }
-    delay(3);
+void pushTofSample(int dist) {
+  if (dist > 0 && dist < 255) {
+    stockRingBuffer[ringBufHead] = dist;
+    ringBufHead = (ringBufHead + 1) % RING_BUF_SIZE;
+    if (ringBufCount < RING_BUF_SIZE) ringBufCount++;
   }
-  if (validCount == 0) return -1;
+}
 
-  // 1. 9-Point Median Sort
-  for (int i = 0; i < validCount - 1; i++) {
-    for (int j = i + 1; j < validCount; j++) {
-      if (samples[i] > samples[j]) {
-        int temp = samples[i];
-        samples[i] = samples[j];
-        samples[j] = temp;
+int calculateIqrTrimmedMeanDistance() {
+  if (ringBufCount == 0) return -1;
+
+  // Copy active samples for sorting
+  int tempBuf[RING_BUF_SIZE];
+  for (int i = 0; i < ringBufCount; i++) {
+    tempBuf[i] = stockRingBuffer[i];
+  }
+
+  // Sort ascending
+  for (int i = 0; i < ringBufCount - 1; i++) {
+    for (int j = i + 1; j < ringBufCount; j++) {
+      if (tempBuf[i] > tempBuf[j]) {
+        int t = tempBuf[i];
+        tempBuf[i] = tempBuf[j];
+        tempBuf[j] = t;
       }
     }
   }
-  int medianDist = samples[validCount / 2];
 
-  // 2. Step-Change Fast Tracking + EMA Filter
-  if (emaDistanceMm < 0 || abs(medianDist - (int)emaDistanceMm) > 12) {
-    // Step-change detected (stock inserted or removed)! Snap instantly to new reading!
-    emaDistanceMm = (float)medianDist;
+  // IQR Outlier Trimming: Discard bottom 20% and top 20% optical noise
+  int trimStart = ringBufCount / 5;
+  int trimEnd = ringBufCount - trimStart;
+  if (trimEnd <= trimStart) {
+    trimStart = 0;
+    trimEnd = ringBufCount;
+  }
+
+  long sum = 0;
+  int count = 0;
+  for (int i = trimStart; i < trimEnd; i++) {
+    sum += tempBuf[i];
+    count++;
+  }
+
+  return (count > 0) ? (int)(sum / count) : tempBuf[ringBufCount / 2];
+}
+
+int readFilteredStockDistanceMm() {
+  if (!tofOnline) return -1;
+
+  // Collect sub-samples into continuous 50-reading buffer
+  for (int i = 0; i < 5; i++) {
+    int d = readRawTofDistanceMm();
+    if (d > 0 && d < 255) {
+      pushTofSample(d);
+    }
+    delay(2);
+  }
+
+  int iqrDist = calculateIqrTrimmedMeanDistance();
+  if (iqrDist <= 0) return -1;
+
+  // Pad-Layer Step Quantization (Pad Thickness = 8mm threshold)
+  const int PAD_STEP_THRES_MM = 8;
+
+  if (padQuantizedDistanceMm < 0) {
+    padQuantizedDistanceMm = iqrDist;
   } else {
-    // Smooth small micro-variations
-    emaDistanceMm = 0.35f * (float)medianDist + 0.65f * emaDistanceMm;
+    int diff = abs(iqrDist - padQuantizedDistanceMm);
+    if (diff >= PAD_STEP_THRES_MM) { // Only update display if physical step matches pad thickness (>= 8mm)
+      padQuantizedDistanceMm = iqrDist;
+    }
   }
 
-  // 3. Hysteresis Deadband Filter (2mm noise threshold)
-  int currentEmaInt = (int)(emaDistanceMm + 0.5f);
-  if (stableDistanceMm < 0 || abs(currentEmaInt - stableDistanceMm) >= 2) {
-    stableDistanceMm = currentEmaInt;
-  }
-
-  return stableDistanceMm;
+  return padQuantizedDistanceMm;
 }
 
 String lastStockCalibNote = "";
