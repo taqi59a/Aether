@@ -566,107 +566,101 @@ int readLiveStockDistanceMm() {
   return readRawTofDistanceMm();
 }
 
-#define RING_BUF_SIZE 50
-static int stockRingBuffer[RING_BUF_SIZE];
-static int ringBufHead = 0;
-static int ringBufCount = 0;
-static int padQuantizedDistanceMm = -1;
-
-void pushTofSample(int dist) {
-  if (dist > 0 && dist < 255) {
-    stockRingBuffer[ringBufHead] = dist;
-    ringBufHead = (ringBufHead + 1) % RING_BUF_SIZE;
-    if (ringBufCount < RING_BUF_SIZE) ringBufCount++;
-  }
-}
-
-int calculateIqrTrimmedMeanDistance() {
-  if (ringBufCount == 0) return -1;
-
-  // Copy active samples for sorting
-  int tempBuf[RING_BUF_SIZE];
-  for (int i = 0; i < ringBufCount; i++) {
-    tempBuf[i] = stockRingBuffer[i];
-  }
-
-  // Sort ascending
-  for (int i = 0; i < ringBufCount - 1; i++) {
-    for (int j = i + 1; j < ringBufCount; j++) {
-      if (tempBuf[i] > tempBuf[j]) {
-        int t = tempBuf[i];
-        tempBuf[i] = tempBuf[j];
-        tempBuf[j] = t;
-      }
-    }
-  }
-
-  // IQR Outlier Trimming: Discard bottom 20% and top 20% optical noise
-  int trimStart = ringBufCount / 5;
-  int trimEnd = ringBufCount - trimStart;
-  if (trimEnd <= trimStart) {
-    trimStart = 0;
-    trimEnd = ringBufCount;
-  }
-
-  long sum = 0;
-  int count = 0;
-  for (int i = trimStart; i < trimEnd; i++) {
-    sum += tempBuf[i];
-    count++;
-  }
-
-  return (count > 0) ? (int)(sum / count) : tempBuf[ringBufCount / 2];
-}
+static float filteredDistF = -1.0f;
+static int accurateDistMm = -1;
 
 int readFilteredStockDistanceMm() {
   if (!tofOnline) return -1;
 
-  // Collect sub-samples into continuous 50-reading buffer
-  for (int i = 0; i < 5; i++) {
+  int samples[7];
+  int validCount = 0;
+  for (int i = 0; i < 7; i++) {
     int d = readRawTofDistanceMm();
     if (d > 0 && d < 255) {
-      pushTofSample(d);
+      samples[validCount++] = d;
     }
-    delay(2);
+    delay(3);
   }
+  if (validCount == 0) return -1;
 
-  int iqrDist = calculateIqrTrimmedMeanDistance();
-  if (iqrDist <= 0) return -1;
+  // 7-Point Median Filter
+  for (int i = 0; i < validCount - 1; i++) {
+    for (int j = i + 1; j < validCount; j++) {
+      if (samples[i] > samples[j]) {
+        int temp = samples[i];
+        samples[i] = samples[j];
+        samples[j] = temp;
+      }
+    }
+  }
+  int medianDist = samples[validCount / 2];
 
-  // Pad-Layer Step Quantization (Pad Thickness = 8mm threshold)
-  const int PAD_STEP_THRES_MM = 8;
-
-  if (padQuantizedDistanceMm < 0) {
-    padQuantizedDistanceMm = iqrDist;
+  // Exponential Moving Average + Instant Step Tracking (>6mm change)
+  if (filteredDistF < 0 || abs(medianDist - (int)filteredDistF) > 6) {
+    filteredDistF = (float)medianDist; // Fast instant step tracking when stock changes!
   } else {
-    int diff = abs(iqrDist - padQuantizedDistanceMm);
-    if (diff >= PAD_STEP_THRES_MM) { // Only update display if physical step matches pad thickness (>= 8mm)
-      padQuantizedDistanceMm = iqrDist;
-    }
+    filteredDistF = 0.30f * (float)medianDist + 0.70f * filteredDistF; // Smooth micro-noise
   }
 
-  return padQuantizedDistanceMm;
+  int currentInt = (int)(filteredDistF + 0.5f);
+  if (accurateDistMm < 0 || abs(currentInt - accurateDistMm) >= 2) {
+    accurateDistMm = currentInt;
+  }
+
+  return accurateDistMm;
 }
 
 String lastStockCalibNote = "";
 
 bool calibrateZeroStockLimit() {
-  int curDist = readFilteredStockDistanceMm();
-  if (curDist <= 0 || curDist >= 255) {
-    curDist = readRawTofDistanceMm();
-  }
-  if (curDist <= 0 || curDist >= 255) {
-    curDist = 200; // Default 200mm safety depth if uncalibrated
+  if (!tofOnline) return false;
+
+  int calibSamples[15];
+  int validCount = 0;
+  for (int i = 0; i < 15; i++) {
+    int d = readRawTofDistanceMm();
+    if (d > 0 && d < 255) {
+      calibSamples[validCount++] = d;
+    }
+    delay(10);
   }
 
-  emptyStockDepthMm = curDist; // Save exact measured physical distance (RAM)
-  saveStockPreferences();      // Save permanently in NVS Flash memory!
+  if (validCount == 0) {
+    emptyStockDepthMm = 200; // Safety default if uncalibrated
+  } else {
+    // Sort samples ascending
+    for (int i = 0; i < validCount - 1; i++) {
+      for (int j = i + 1; j < validCount; j++) {
+        if (calibSamples[i] > calibSamples[j]) {
+          int t = calibSamples[i];
+          calibSamples[i] = calibSamples[j];
+          calibSamples[j] = t;
+        }
+      }
+    }
+    // Trim top/bottom 20% outliers and average middle 60%
+    int startIdx = validCount / 5;
+    int endIdx = validCount - startIdx;
+    long sum = 0;
+    int cnt = 0;
+    for (int i = startIdx; i < endIdx; i++) {
+      sum += calibSamples[i];
+      cnt++;
+    }
+    emptyStockDepthMm = (cnt > 0) ? (int)(sum / cnt) : calibSamples[validCount / 2];
+  }
+
+  saveStockPreferences(); // Saved permanently in NVS Flash memory & RAM!
 
   char noteBuf[45];
   snprintf(noteBuf, sizeof(noteBuf), "ZERO STOCK INITIATED: %d mm", emptyStockDepthMm);
   lastStockCalibNote = String(noteBuf);
 
-  Serial.printf("DYNAMIC ZERO STOCK INITIATED AT: %d mm\n", emptyStockDepthMm);
+  // Reset filtering state
+  filteredDistF = (float)emptyStockDepthMm;
+  accurateDistMm = emptyStockDepthMm;
+
+  Serial.printf("HIGH-PRECISION ZERO STOCK INITIATED AT: %d mm\n", emptyStockDepthMm);
   return true;
 }
 
@@ -675,11 +669,11 @@ int getStockPercentage() {
 
   int dist = readFilteredStockDistanceMm();
 
-  // 1. Zero Stock Margin Clamp (within 12mm of initialized zero stock depth is 0% EMPTY!)
-  int zeroThresholdMm = emptyStockDepthMm - 12;
-  if (zeroThresholdMm < 25) zeroThresholdMm = 25;
+  // 1. Zero Stock Margin Clamp (within 6mm of emptyStockDepthMm or >= emptyStockDepthMm is 0% EMPTY!)
+  int zeroLimit = emptyStockDepthMm - 6;
+  if (zeroLimit < 20) zeroLimit = 20;
 
-  if (dist <= 0 || dist >= zeroThresholdMm || dist >= 255) {
+  if (dist <= 0 || dist >= zeroLimit || dist >= 255) {
     return 0;
   }
 
@@ -688,11 +682,11 @@ int getStockPercentage() {
     return 100;
   }
 
-  // 3. Distribute percentage proportionally between 15mm (100%) and zeroThresholdMm (0%):
-  int span = zeroThresholdMm - 15;
-  if (span <= 0) return 0;
+  // 3. High-Accuracy Linear Proportional Math:
+  int totalSpan = zeroLimit - 15;
+  if (totalSpan <= 0) return 0;
 
-  int pct = ((zeroThresholdMm - dist) * 100) / span;
+  int pct = ((zeroLimit - dist) * 100) / totalSpan;
   currentStockPercent = constrain(pct, 0, 100);
   return currentStockPercent;
 }
