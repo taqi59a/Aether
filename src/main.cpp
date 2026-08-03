@@ -568,18 +568,18 @@ int readLiveStockDistanceMm() {
 
 int readFilteredStockDistanceMm() {
   if (!tofOnline) return -1;
-  int samples[5];
+  int samples[7];
   int validCount = 0;
-  for (int i = 0; i < 5; i++) {
+  for (int i = 0; i < 7; i++) {
     int d = readRawTofDistanceMm();
-    if (d > 0 && d < 600) {
+    if (d > 0 && d < 255) { // Reject 255 range overflow bytes!
       samples[validCount++] = d;
     }
-    delay(4);
+    delay(5);
   }
-  if (validCount == 0) return readRawTofDistanceMm();
+  if (validCount == 0) return -1;
 
-  // 5-Point Median Sort
+  // 7-Point Median Sort
   for (int i = 0; i < validCount - 1; i++) {
     for (int j = i + 1; j < validCount; j++) {
       if (samples[i] > samples[j]) {
@@ -596,11 +596,11 @@ String lastStockCalibNote = "";
 
 bool calibrateZeroStockLimit() {
   int curDist = readFilteredStockDistanceMm();
-  if (curDist <= 0) {
+  if (curDist <= 0 || curDist >= 255) {
     curDist = readRawTofDistanceMm();
   }
-  if (curDist <= 0 || curDist == 255) {
-    curDist = 350; // Safety maximum stack limit if sensor out of reach
+  if (curDist <= 0 || curDist >= 255) {
+    curDist = 200; // Default 200mm safety depth if uncalibrated
   }
 
   emptyStockDepthMm = curDist; // Save exact measured physical distance (RAM)
@@ -619,8 +619,8 @@ int getStockPercentage() {
 
   int dist = readFilteredStockDistanceMm();
 
-  // 1. If distance is at or past empty initialized length D_empty or out-of-bounds: 0% EMPTY!
-  if (dist <= 0 || dist >= emptyStockDepthMm || dist == 255) {
+  // 1. If distance is invalid (-1), 0, or at/past empty initialized length D_empty: 0% EMPTY!
+  if (dist <= 0 || dist >= emptyStockDepthMm || dist >= 255) {
     return 0;
   }
 
@@ -2846,6 +2846,9 @@ void drawCardDetailScreen(int idx) {
   tft.printf("FIRST REGISTERED TIME: %ds ago", (int)(nowSec - cardDb[idx].firstSeenSec));
 }
 
+static int lastDrawnStockPct = -999;
+static String lastDrawnStockNote = "INIT";
+
 void drawStockScreen() {
   uint16_t bg = getBgColor();
   tft.fillScreen(bg);
@@ -2874,18 +2877,29 @@ void drawStockScreen() {
   int barH = 24;
   tft.drawRect(barX, barY, barW, barH, getTextMain());
 
-  drawStockData();
-
   tft.fillRect(0, SH - FTR_H, SW, FTR_H, getFooterBg());
   tft.setTextColor(isDarkTheme ? C_WH : C_BK);
   tft.setTextSize(1);
   tft.setCursor(10, SH - 16);
   tft.print("Click Knob: Set Zero Stock | K0: Back");
+
+  // Force redraw on screen load
+  lastDrawnStockPct = -999;
+  lastDrawnStockNote = "INIT";
+  drawStockData();
 }
 
 void drawStockData() {
-  // Overwrite dynamic values in-place (100% ZERO FLICKER!)
   int pct = getStockPercentage();
+  
+  // DIFFERENTIAL REDRAW: DO NOT TOUCH SCREEN IF VALUE IS UNCHANGED (100% ABSOLUTE ZERO FLICKER!)
+  if (pct == lastDrawnStockPct && lastStockCalibNote == lastDrawnStockNote) {
+    return;
+  }
+
+  lastDrawnStockPct = pct;
+  lastDrawnStockNote = lastStockCalibNote;
+
   int cardY = 55;
   uint16_t cBg = getCardBg(false);
 
