@@ -599,14 +599,21 @@ int readFilteredStockDistanceMm() {
   return samples[validCount / 2];
 }
 
+String lastStockCalibNote = "";
+
 bool calibrateZeroStockLimit() {
   int curDist = readFilteredStockDistanceMm();
   if (curDist <= 0 || curDist == 255) {
-    curDist = 250; // Max default empty depth threshold
+    curDist = 200; // Default 200mm empty length
   }
   emptyStockDepthMm = curDist;
   saveStockPreferences(); // Saved permanently in NVS Flash memory & RAM!
-  Serial.printf("ZERO STOCK CALIBRATED & SAVED TO NVS: %d mm\n", emptyStockDepthMm);
+
+  char noteBuf[45];
+  snprintf(noteBuf, sizeof(noteBuf), "ZERO STOCK INITIATED: %d mm", emptyStockDepthMm);
+  lastStockCalibNote = String(noteBuf);
+
+  Serial.printf("ZERO STOCK INITIATED AT: %d mm\n", emptyStockDepthMm);
   return true;
 }
 
@@ -615,21 +622,21 @@ int getStockPercentage() {
 
   int dist = readFilteredStockDistanceMm();
 
-  // 1. If sensor reads out-of-bounds (255 or <= 0 or >= emptyStockDepthMm), stack is EMPTY -> 0%!
+  // 1. If distance is at or past empty length D_empty (e.g. 200mm) or out-of-bounds (255 / <=0): 0% EMPTY!
   if (dist <= 0 || dist >= emptyStockDepthMm || dist == 255) {
     return 0;
   }
 
-  // 2. If distance is at or below full threshold (20mm), stack is FULL -> 100%!
-  if (dist <= fullStockDepthMm) {
+  // 2. If distance is right in front of sensor (D <= 15mm): 100% FULL!
+  if (dist <= 15) {
     return 100;
   }
 
-  // 3. Proportional Stock Calculation between Full (100%) and Zero Stock Limit (0%)
-  int rangeSpan = emptyStockDepthMm - fullStockDepthMm;
-  if (rangeSpan <= 0) return 0;
+  // 3. Distribute percentage proportionally from 0 to D_empty (15mm to D_empty):
+  int span = emptyStockDepthMm - 15;
+  if (span <= 0) return 0;
 
-  int pct = ((emptyStockDepthMm - dist) * 100) / rangeSpan;
+  int pct = ((emptyStockDepthMm - dist) * 100) / span;
   currentStockPercent = constrain(pct, 0, 100);
   return currentStockPercent;
 }
@@ -1396,7 +1403,7 @@ void loop() {
       delay(100);
       subSel = 0;
       switch (mSel) {
-        case 0: curScreen = SCR_SUB_STOCK; drawSubMenu("STOCK & SENSOR", mLabelStock, NSUB_STOCK, 0); break;
+        case 0: curScreen = SCR_STOCK; stockFrameDrawn = false; drawStockScreen(); break;
         case 1: curScreen = SCR_SUB_MOTOR; drawSubMenu("MOTOR CONTROL", mLabelMotor, NSUB_MOTOR, 0); break;
         case 2: curScreen = SCR_SUB_RFID; drawSubMenu("RFID & CARD DB", mLabelRfid, NSUB_RFID, 0); break;
         case 3: curScreen = SCR_SUB_SYS; drawSubMenu("NETWORK & SYSTEM", mLabelSys, NSUB_SYS, 0); break;
@@ -2852,7 +2859,7 @@ void drawStockScreen() {
   tft.setTextSize(2);
   tft.setTextColor(getTextMain());
   tft.setCursor(12, 12);
-  tft.print("STOCK & PROXIMITY");
+  tft.print("STOCK LEVEL");
 
   int cardY = 55;
   tft.fillRect(10, cardY, SW - 20, 175, getCardBg(true));
@@ -2861,48 +2868,54 @@ void drawStockScreen() {
   tft.setTextSize(1);
   tft.setTextColor(tofOnline ? C_GN : C_RD, getCardBg(true));
   tft.setCursor(20, cardY + 12);
-  tft.print(tofOnline ? "SENSOR: ONLINE (VL6180X)" : "SENSOR: OFFLINE (CHECK 41/42)");
+  tft.print(tofOnline ? "STOCK SENSOR: ACTIVE" : "STOCK SENSOR: OFFLINE");
 
   // Progress Bar Outer Rect (drawn ONCE)
   int barX = 20;
-  int barY = cardY + 80;
+  int barY = cardY + 88;
   int barW = SW - 60;
-  int barH = 22;
+  int barH = 24;
   tft.drawRect(barX, barY, barW, barH, getTextMain());
 
   drawStockData();
+
+  tft.fillRect(0, SH - FTR_H, SW, FTR_H, getFooterBg());
+  tft.setTextColor(isDarkTheme ? C_DG : 0x4208);
+  tft.setTextSize(1);
+  tft.setCursor(10, SH - 16);
+  tft.print("Click Knob: Set Zero Stock | K0: Back");
 }
 
 void drawStockData() {
   // Overwrite dynamic values in-place (100% ZERO FLICKER!)
-  int distMm = readLiveStockDistanceMm();
   int pct = getStockPercentage();
   int cardY = 55;
   uint16_t boxBg = getCardBg(true);
   uint16_t textFg = getCardFg(true);
 
-  // 1. Distance Text
-  tft.fillRect(20, cardY + 30, SW - 60, 18, boxBg);
-  tft.setTextSize(2);
-  tft.setTextColor(textFg, boxBg);
-  tft.setCursor(20, cardY + 30);
-  if (distMm >= 0) {
-    tft.printf("DIST: %d mm", distMm);
+  // 1. Bold Large Stock Percentage Title (Text Size 3)
+  tft.fillRect(20, cardY + 36, SW - 60, 28, boxBg);
+  tft.setTextSize(3);
+  if (pct == 0) {
+    tft.setTextColor(C_RD, boxBg);
+    tft.setCursor(20, cardY + 36);
+    tft.print("STOCK: 0%");
+  } else if (pct >= 100) {
+    tft.setTextColor(C_GN, boxBg);
+    tft.setCursor(20, cardY + 36);
+    tft.print("STOCK: 100%");
   } else {
-    tft.print("DIST: --- mm");
+    tft.setTextColor(getAccentGold(), boxBg);
+    tft.setCursor(20, cardY + 36);
+    tft.printf("STOCK: %d%%", pct);
   }
 
-  // 2. Stock % Text
-  tft.fillRect(20, cardY + 54, SW - 60, 18, boxBg);
-  tft.setCursor(20, cardY + 54);
-  tft.printf("STOCK: %d%%", pct);
-
-  // 3. Proximity Bar Fill Area
+  // 2. Visual Progress Bar Fill Area
   int barX = 20;
-  int barY = cardY + 80;
+  int barY = cardY + 88;
   int barW = SW - 60;
-  int barH = 22;
-  tft.fillRect(barX + 2, barY + 2, barW - 4, barH - 4, boxBg); // Clear inner bar
+  int barH = 24;
+  tft.fillRect(barX + 2, barY + 2, barW - 4, barH - 4, boxBg);
 
   int fillW = map(pct, 0, 100, 0, barW - 4);
   fillW = constrain(fillW, 0, barW - 4);
@@ -2912,17 +2925,18 @@ void drawStockData() {
     tft.fillRect(barX + 2, barY + 2, fillW, barH - 4, barColor);
   }
 
-  // 4. Zero Stock Depth Text
-  tft.fillRect(20, cardY + 115, SW - 60, 14, boxBg);
+  // 3. Zero Stock Note Banner
+  tft.fillRect(20, cardY + 130, SW - 60, 16, boxBg);
   tft.setTextSize(1);
-  tft.setTextColor(textFg, boxBg);
-  tft.setCursor(20, cardY + 115);
-  tft.printf("ZERO-STOCK DEPTH: %d mm", emptyStockDepthMm);
-
-  // 5. Proximity Status Text
-  tft.fillRect(20, cardY + 135, SW - 60, 14, boxBg);
-  tft.setCursor(20, cardY + 135);
-  tft.printf("PROXIMITY: %s", (distMm < 50) ? "CLOSE (FULL)" : ((distMm > emptyStockDepthMm - 50) ? "FAR (EMPTY)" : "MID-RANGE"));
+  if (lastStockCalibNote.length() > 0) {
+    tft.setTextColor(C_GN, boxBg);
+    tft.setCursor(20, cardY + 130);
+    tft.print(lastStockCalibNote);
+  } else {
+    tft.setTextColor(textFg, boxBg);
+    tft.setCursor(20, cardY + 130);
+    tft.printf("Zero Stock Length: %d mm", emptyStockDepthMm);
+  }
 }
 
 void drawI2cDiagScreen() {
