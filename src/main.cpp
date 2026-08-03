@@ -639,21 +639,24 @@ int getStockPercentage() {
 
   int dist = readFilteredStockDistanceMm();
 
-  // 1. If distance is invalid (-1), 0, or at/past empty initialized length D_empty: 0% EMPTY!
-  if (dist <= 0 || dist >= emptyStockDepthMm || dist >= 255) {
+  // 1. Zero Stock Margin Clamp (within 12mm of initialized zero stock depth is 0% EMPTY!)
+  int zeroThresholdMm = emptyStockDepthMm - 12;
+  if (zeroThresholdMm < 25) zeroThresholdMm = 25;
+
+  if (dist <= 0 || dist >= zeroThresholdMm || dist >= 255) {
     return 0;
   }
 
-  // 2. If distance is right in front of sensor (D <= 15mm): 100% FULL!
+  // 2. Full Stock Threshold (D <= 15mm is 100% FULL!)
   if (dist <= 15) {
     return 100;
   }
 
-  // 3. Distribute percentage proportionally between 15mm (100%) and D_empty (0%):
-  int span = emptyStockDepthMm - 15;
+  // 3. Distribute percentage proportionally between 15mm (100%) and zeroThresholdMm (0%):
+  int span = zeroThresholdMm - 15;
   if (span <= 0) return 0;
 
-  int pct = ((emptyStockDepthMm - dist) * 100) / span;
+  int pct = ((zeroThresholdMm - dist) * 100) / span;
   currentStockPercent = constrain(pct, 0, 100);
   return currentStockPercent;
 }
