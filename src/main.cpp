@@ -566,20 +566,23 @@ int readLiveStockDistanceMm() {
   return readRawTofDistanceMm();
 }
 
+static float emaDistanceMm = -1.0f;
+static int stableDistanceMm = -1;
+
 int readFilteredStockDistanceMm() {
   if (!tofOnline) return -1;
-  int samples[7];
+  int samples[9];
   int validCount = 0;
-  for (int i = 0; i < 7; i++) {
+  for (int i = 0; i < 9; i++) {
     int d = readRawTofDistanceMm();
     if (d > 0 && d < 255) { // Reject 255 range overflow bytes!
       samples[validCount++] = d;
     }
-    delay(5);
+    delay(3);
   }
   if (validCount == 0) return -1;
 
-  // 7-Point Median Sort
+  // 1. 9-Point Median Sort
   for (int i = 0; i < validCount - 1; i++) {
     for (int j = i + 1; j < validCount; j++) {
       if (samples[i] > samples[j]) {
@@ -589,7 +592,24 @@ int readFilteredStockDistanceMm() {
       }
     }
   }
-  return samples[validCount / 2];
+  int medianDist = samples[validCount / 2];
+
+  // 2. Exponential Moving Average (EMA) Low-Pass Filter (alpha = 0.20)
+  if (emaDistanceMm < 0) {
+    emaDistanceMm = (float)medianDist;
+  } else {
+    emaDistanceMm = 0.20f * (float)medianDist + 0.80f * emaDistanceMm;
+  }
+
+  // 3. Hysteresis Deadband Filter (Delta D <= 4mm)
+  int currentEmaInt = (int)(emaDistanceMm + 0.5f);
+  if (stableDistanceMm < 0) {
+    stableDistanceMm = currentEmaInt;
+  } else if (abs(currentEmaInt - stableDistanceMm) > 4) { // Update only if movement > 4mm
+    stableDistanceMm = currentEmaInt;
+  }
+
+  return stableDistanceMm;
 }
 
 String lastStockCalibNote = "";
