@@ -178,11 +178,17 @@ void beep(unsigned int freq, unsigned long durMs) {
 #endif
 
 void setRgbLed(uint8_t r, uint8_t g, uint8_t b) {
+  #ifdef NEOPIXEL_POWER
+    pinMode(NEOPIXEL_POWER, OUTPUT);
+    digitalWrite(NEOPIXEL_POWER, HIGH);
+  #endif
   #ifdef RGB_BUILTIN
     neopixelWrite(RGB_BUILTIN, r, g, b);
   #endif
-  neopixelWrite(38, r, g, b);
   neopixelWrite(48, r, g, b);
+  neopixelWrite(38, r, g, b);
+  neopixelWrite(21, r, g, b);
+  neopixelWrite(47, r, g, b);
 }
 
 // UI State
@@ -520,10 +526,13 @@ void initStockSensor() {
     // 2. Set Max Convergence Time to 49ms (0x001C = 0x31) for deep 500mm stack readings
     writeReg16(0x29, 0x001C, 0x31);
 
-    // 3. Set Inter-measurement Period to 100ms (0x001B = 0x09)
-    writeReg16(0x29, 0x001B, 0x09);
+    // 3. Set Inter-measurement Period to 50ms (0x001B = 0x04) for fast continuous background updates
+    writeReg16(0x29, 0x001B, 0x04);
 
-    // 4. Initialize Adafruit library if available
+    // 4. Start Continuous Ranging Mode: SYSRANGE__START (0x0018) = 0x03
+    writeReg16(0x29, 0x0018, 0x03);
+
+    // Initialize Adafruit library object
     vl6180x.begin(&Wire);
   } else {
     tofOnline = false;
@@ -534,35 +543,19 @@ void initStockSensor() {
 int readRawTofDistanceMm() {
   if (!tofOnline) return -1;
 
-  // Try Adafruit library first
-  uint8_t range = vl6180x.readRange();
-  uint8_t status = vl6180x.readRangeStatus();
-  if (status == 0 && range > 0 && range < 255) {
-    liveStockDistanceMm = range; // Raw mm distance (1 unit = 1mm)
-    writeReg16(0x29, 0x0015, 0x07);  // Clear interrupt flag!
-    return liveStockDistanceMm;
-  }
-
-  // Raw Direct 16-Bit Register Measurement Trigger Sequence
-  // 1. Trigger single-shot measurement: SYSRANGE__START (0x0018) = 0x01
-  writeReg16(0x29, 0x0018, 0x01);
-
-  // 2. Wait up to 35ms for measurement complete (bit 2 of RESULT__INTERRUPT_STATUS_GPIO 0x004F)
-  unsigned long startMs = millis();
-  while (millis() - startMs < 35) {
-    uint8_t intStat = readReg16(0x29, 0x004F);
-    if ((intStat & 0x07) == 0x04) break;
-    delay(2);
-  }
-
-  // 3. Read range value: RESULT__RANGE_VAL (0x0062)
+  // 1. Direct 16-Bit Register Read from RESULT__RANGE_VAL (0x0062) in continuous mode
   uint8_t rawVal = readReg16(0x29, 0x0062);
-
-  // 4. Clear interrupt status: SYSTEM__INTERRUPT_CLEAR (0x0015) = 0x07
-  writeReg16(0x29, 0x0015, 0x07);
+  writeReg16(0x29, 0x0015, 0x07); // Clear interrupt status
 
   if (rawVal > 0 && rawVal < 255) {
     liveStockDistanceMm = rawVal;
+    return liveStockDistanceMm;
+  }
+
+  // 2. Fallback to Adafruit library reading
+  uint8_t range = vl6180x.readRange();
+  if (range > 0 && range < 255) {
+    liveStockDistanceMm = range;
     return liveStockDistanceMm;
   }
 
@@ -575,18 +568,18 @@ int readLiveStockDistanceMm() {
 
 int readFilteredStockDistanceMm() {
   if (!tofOnline) return -1;
-  int samples[7];
+  int samples[5];
   int validCount = 0;
-  for (int i = 0; i < 7; i++) {
+  for (int i = 0; i < 5; i++) {
     int d = readRawTofDistanceMm();
     if (d > 0 && d < 600) {
       samples[validCount++] = d;
     }
-    delay(10);
+    delay(4);
   }
   if (validCount == 0) return readRawTofDistanceMm();
 
-  // 7-Point Median Sort
+  // 5-Point Median Sort
   for (int i = 0; i < validCount - 1; i++) {
     for (int j = i + 1; j < validCount; j++) {
       if (samples[i] > samples[j]) {
@@ -1282,15 +1275,14 @@ void loop() {
     drawHudBrackets();
   }
 
-  if (curScreen == SCR_SCREENSAVER) {
+  // Continuous fluid RGB NeoPixel Rainbow rotation across ALL screens
+  if (!motorBusy && curScreen != SCR_DISPENSE) {
     updateRainbowRgbLed();
-    runScreensaverFrame();
-    return;
   }
 
-  // Slow Breathing Rainbow RGB LED in Standby Mode
-  if (curScreen == SCR_STANDBY) {
-    updateRainbowRgbLed();
+  if (curScreen == SCR_SCREENSAVER) {
+    runScreensaverFrame();
+    return;
   }
 
   if (curScreen != SCR_STANDBY && (diff != 0 || psh || k0)) {
@@ -1528,7 +1520,7 @@ void loop() {
       stockFrameDrawn = true;
     }
     static unsigned long lastStockRefreshMs = 0;
-    if (millis() - lastStockRefreshMs > 200) {
+    if (millis() - lastStockRefreshMs > 60) {
       lastStockRefreshMs = millis();
       drawStockData();
     }
