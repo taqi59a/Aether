@@ -603,17 +603,21 @@ String lastStockCalibNote = "";
 
 bool calibrateZeroStockLimit() {
   int curDist = readFilteredStockDistanceMm();
-  if (curDist <= 0 || curDist == 255) {
-    curDist = 200; // Default 200mm empty length
+  if (curDist <= 0) {
+    curDist = readRawTofDistanceMm();
   }
-  emptyStockDepthMm = curDist;
-  saveStockPreferences(); // Saved permanently in NVS Flash memory & RAM!
+  if (curDist <= 0 || curDist == 255) {
+    curDist = 350; // Safety maximum stack limit if sensor out of reach
+  }
+
+  emptyStockDepthMm = curDist; // Save exact measured physical distance (RAM)
+  saveStockPreferences();      // Save permanently in NVS Flash memory!
 
   char noteBuf[45];
   snprintf(noteBuf, sizeof(noteBuf), "ZERO STOCK INITIATED: %d mm", emptyStockDepthMm);
   lastStockCalibNote = String(noteBuf);
 
-  Serial.printf("ZERO STOCK INITIATED AT: %d mm\n", emptyStockDepthMm);
+  Serial.printf("DYNAMIC ZERO STOCK INITIATED AT: %d mm\n", emptyStockDepthMm);
   return true;
 }
 
@@ -622,7 +626,7 @@ int getStockPercentage() {
 
   int dist = readFilteredStockDistanceMm();
 
-  // 1. If distance is at or past empty length D_empty (e.g. 200mm) or out-of-bounds (255 / <=0): 0% EMPTY!
+  // 1. If distance is at or past empty initialized length D_empty or out-of-bounds: 0% EMPTY!
   if (dist <= 0 || dist >= emptyStockDepthMm || dist == 255) {
     return 0;
   }
@@ -632,7 +636,7 @@ int getStockPercentage() {
     return 100;
   }
 
-  // 3. Distribute percentage proportionally from 0 to D_empty (15mm to D_empty):
+  // 3. Distribute percentage proportionally between 15mm (100%) and D_empty (0%):
   int span = emptyStockDepthMm - 15;
   if (span <= 0) return 0;
 
