@@ -298,22 +298,22 @@ const char* grid[] = {
 #define C_GR   0x7BEF
 #define C_DG   0x4208
 
-// Palette Getters (Light Theme Default, High Contrast)
+// Palette Getters (High-Contrast Cyberpunk Palette)
 uint16_t getBgColor()     { return isDarkTheme ? C_BK : C_WH; }
 uint16_t getTextMain()   { return isDarkTheme ? C_WH : C_BK; }
 uint16_t getTextSub()    { return isDarkTheme ? C_GR : 0x4208; }
-uint16_t getAccentCyan() { return isDarkTheme ? C_WH : C_BK; }
-uint16_t getAccentGold() { return isDarkTheme ? C_WH : C_BK; }
+uint16_t getAccentCyan() { return isDarkTheme ? C_CY : 0x001F; }
+uint16_t getAccentGold() { return isDarkTheme ? C_GL : 0xE500; }
 uint16_t getFooterBg()   { return isDarkTheme ? 0x1082 : 0xDF17; }
 
 uint16_t getCardBg(bool sel) {
-  if (isDarkTheme) return sel ? C_WH : C_BK;
-  return sel ? C_BK : C_WH;
+  if (isDarkTheme) return sel ? 0x1082 : C_BK;
+  return sel ? 0xE71C : C_WH;
 }
 
 uint16_t getCardFg(bool sel) {
-  if (isDarkTheme) return sel ? C_BK : C_WH;
-  return sel ? C_WH : C_BK;
+  if (isDarkTheme) return C_WH;
+  return C_BK;
 }
 
 uint16_t getCardBar(bool sel) {
@@ -2858,11 +2858,12 @@ void drawStockScreen() {
   tft.print("STOCK LEVEL");
 
   int cardY = 55;
-  tft.fillRect(10, cardY, SW - 20, 175, getCardBg(true));
+  uint16_t cBg = getCardBg(false);
+  tft.fillRect(10, cardY, SW - 20, 175, cBg);
   tft.drawRect(10, cardY, SW - 20, 175, getTextMain());
 
   tft.setTextSize(1);
-  tft.setTextColor(tofOnline ? C_GN : C_RD, getCardBg(true));
+  tft.setTextColor(tofOnline ? (isDarkTheme ? C_GN : 0x03E0) : C_RD, cBg);
   tft.setCursor(20, cardY + 12);
   tft.print(tofOnline ? "STOCK SENSOR: ACTIVE" : "STOCK SENSOR: OFFLINE");
 
@@ -2876,7 +2877,7 @@ void drawStockScreen() {
   drawStockData();
 
   tft.fillRect(0, SH - FTR_H, SW, FTR_H, getFooterBg());
-  tft.setTextColor(isDarkTheme ? C_DG : 0x4208);
+  tft.setTextColor(isDarkTheme ? C_WH : C_BK);
   tft.setTextSize(1);
   tft.setCursor(10, SH - 16);
   tft.print("Click Knob: Set Zero Stock | K0: Back");
@@ -2886,22 +2887,21 @@ void drawStockData() {
   // Overwrite dynamic values in-place (100% ZERO FLICKER!)
   int pct = getStockPercentage();
   int cardY = 55;
-  uint16_t boxBg = getCardBg(true);
-  uint16_t textFg = getCardFg(true);
+  uint16_t cBg = getCardBg(false);
 
   // 1. Bold Large Stock Percentage Title (Text Size 3)
-  tft.fillRect(20, cardY + 36, SW - 60, 28, boxBg);
+  tft.fillRect(20, cardY + 36, SW - 60, 28, cBg);
   tft.setTextSize(3);
   if (pct == 0) {
-    tft.setTextColor(C_RD, boxBg);
+    tft.setTextColor(C_RD, cBg);
     tft.setCursor(20, cardY + 36);
     tft.print("STOCK: 0%");
   } else if (pct >= 100) {
-    tft.setTextColor(C_GN, boxBg);
+    tft.setTextColor(isDarkTheme ? C_GN : 0x03E0, cBg);
     tft.setCursor(20, cardY + 36);
     tft.print("STOCK: 100%");
   } else {
-    tft.setTextColor(getAccentGold(), boxBg);
+    tft.setTextColor(isDarkTheme ? C_GL : 0xE500, cBg);
     tft.setCursor(20, cardY + 36);
     tft.printf("STOCK: %d%%", pct);
   }
@@ -2911,25 +2911,25 @@ void drawStockData() {
   int barY = cardY + 88;
   int barW = SW - 60;
   int barH = 24;
-  tft.fillRect(barX + 2, barY + 2, barW - 4, barH - 4, boxBg);
+  tft.fillRect(barX + 2, barY + 2, barW - 4, barH - 4, cBg);
 
   int fillW = map(pct, 0, 100, 0, barW - 4);
   fillW = constrain(fillW, 0, barW - 4);
 
   if (fillW > 0) {
-    uint16_t barColor = (pct > 50) ? C_GN : ((pct > 20) ? C_GL : C_RD);
+    uint16_t barColor = (pct > 50) ? (isDarkTheme ? C_GN : 0x03E0) : ((pct > 20) ? (isDarkTheme ? C_GL : 0xE500) : C_RD);
     tft.fillRect(barX + 2, barY + 2, fillW, barH - 4, barColor);
   }
 
   // 3. Zero Stock Note Banner
-  tft.fillRect(20, cardY + 130, SW - 60, 16, boxBg);
+  tft.fillRect(20, cardY + 130, SW - 60, 16, cBg);
   tft.setTextSize(1);
   if (lastStockCalibNote.length() > 0) {
-    tft.setTextColor(C_GN, boxBg);
+    tft.setTextColor(isDarkTheme ? C_CY : 0x001F, cBg);
     tft.setCursor(20, cardY + 130);
     tft.print(lastStockCalibNote);
   } else {
-    tft.setTextColor(textFg, boxBg);
+    tft.setTextColor(getTextMain(), cBg);
     tft.setCursor(20, cardY + 130);
     tft.printf("Zero Stock Length: %d mm", emptyStockDepthMm);
   }
