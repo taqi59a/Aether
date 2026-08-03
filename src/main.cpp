@@ -594,18 +594,18 @@ int readFilteredStockDistanceMm() {
   }
   int medianDist = samples[validCount / 2];
 
-  // 2. Exponential Moving Average (EMA) Low-Pass Filter (alpha = 0.20)
-  if (emaDistanceMm < 0) {
+  // 2. Step-Change Fast Tracking + EMA Filter
+  if (emaDistanceMm < 0 || abs(medianDist - (int)emaDistanceMm) > 12) {
+    // Step-change detected (stock inserted or removed)! Snap instantly to new reading!
     emaDistanceMm = (float)medianDist;
   } else {
-    emaDistanceMm = 0.20f * (float)medianDist + 0.80f * emaDistanceMm;
+    // Smooth small micro-variations
+    emaDistanceMm = 0.35f * (float)medianDist + 0.65f * emaDistanceMm;
   }
 
-  // 3. Hysteresis Deadband Filter (Delta D <= 4mm)
+  // 3. Hysteresis Deadband Filter (2mm noise threshold)
   int currentEmaInt = (int)(emaDistanceMm + 0.5f);
-  if (stableDistanceMm < 0) {
-    stableDistanceMm = currentEmaInt;
-  } else if (abs(currentEmaInt - stableDistanceMm) > 4) { // Update only if movement > 4mm
+  if (stableDistanceMm < 0 || abs(currentEmaInt - stableDistanceMm) >= 2) {
     stableDistanceMm = currentEmaInt;
   }
 
