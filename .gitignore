@@ -1,17 +1,13 @@
-# PlatformIO Build Directory & Dependencies
-.pio/
-.pioenvs/
-.piolibdeps/
-.clang_complete
-.gcc-flags.json
-
-# Operating System & IDE Metadata
-.DS_Store
-._*
-.idea/
-.vscode/.browse.c_cpp_properties.json
-.vscode/c_cpp_properties.json
-.vscode/launch.json
-.vscode/ipch/
+# dependencies & build output
+node_modules/
+api/node_modules/
 *.zip
-*.log
+# local / secrets
+.env
+.env.*
+local.settings.json
+.claude/
+.DS_Store
+# separate projects and old versions (kept locally only)
+QuickQR/
+_archive/

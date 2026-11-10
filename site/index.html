@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aether EdTech</title>
+<meta name="description" content="Aether EdTech, Brussels. English · Français · Nederlands · Deutsch">
+<meta name="referrer" content="no-referrer">
+<link rel="icon" href="assets/favicon.png" type="image/png">
+<link rel="stylesheet" href="css/style.css">
+<link rel="alternate" hreflang="en" href="https://myaether.org/en/"><link rel="alternate" hreflang="fr" href="https://myaether.org/fr/"><link rel="alternate" hreflang="nl" href="https://myaether.org/nl/"><link rel="alternate" hreflang="de" href="https://myaether.org/de/">
+<script>
+(function () {
+  var ok = ['en', 'fr', 'nl', 'de'], list = [];
+  try { list = (navigator.languages && navigator.languages.length) ? navigator.languages : [navigator.language || navigator.userLanguage]; } catch (e) {}
+  var pick = 'en';
+  for (var i = 0; i < list.length; i++) {
+    var c = String(list[i] || '').toLowerCase().split('-')[0];
+    if (ok.indexOf(c) !== -1) { pick = c; break; }
+  }
+  location.replace(pick + '/');
+})();
+</script>
+<noscript><style>.router-wait{display:none}</style></noscript>
+</head>
+<body class="router">
+<main class="router-box">
+  <img src="assets/img/logo.png" alt="" width="96" height="96">
+  <h1>Aether EdTech</h1>
+  <p class="router-wait">…</p>
+  <ul class="router-langs">
+    <li><a href="en/" hreflang="en" lang="en">English</a></li>
+    <li><a href="fr/" hreflang="fr" lang="fr">Français</a></li>
+    <li><a href="nl/" hreflang="nl" lang="nl">Nederlands</a></li>
+    <li><a href="de/" hreflang="de" lang="de">Deutsch</a></li>
+  </ul>
+</main>
+</body>
+</html>
