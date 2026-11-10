@@ -327,3 +327,12 @@ code { font: .9em ui-monospace, Menlo, monospace; background: var(--paper-2); pa
 .mv-card p { font: 500 clamp(1.25rem, 2.4vw, 1.65rem)/1.4 var(--serif); color: var(--ink); margin: 0; text-wrap: pretty; }
 @media (max-width: 760px) { .mv-grid { grid-template-columns: 1fr; } }
 .legal-line a { white-space: nowrap; }
+
+/* ---------- v5: process strip (light variant of the numbered cards), hero registration line ---------- */
+.hero-reg { margin-top: 1.6rem; letter-spacing: .02em; }
+.cyber-grid.process { border-color: var(--ink); }
+.cyber-grid.process .cy { border-color: var(--rule); background: var(--white); }
+.cyber-grid.process .cy h3 { color: var(--ink); }
+.cyber-grid.process .cy p { color: var(--ink-soft); }
+.cyber-grid.process .cy-n { color: var(--clay); }
+@media (min-width: 900px) { .cyber-grid.cols3 { grid-template-columns: repeat(3, 1fr); } }

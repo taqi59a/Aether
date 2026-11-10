@@ -467,3 +467,14 @@ _V4 = dict(
 )
 for _l, _d in _V4.items():
     OV[_l].update(_d)
+
+# ---- v5: professional copy rewrite (planned by Opus, executed by Sonnet)
+import v5_en, v5_fr, v5_nl, v5_de
+_V5 = dict(en=v5_en.V5_EN, fr=v5_fr.V5_FR, nl=v5_nl.V5_NL, de=v5_de.V5_DE)
+for _l, _d in _V5.items():
+    OV[_l].update(_d)
+# page titles on legal pages: no terminal period (consistency with other headings)
+for _l in OV:
+    for _k in ("lg_h1", "pv_h1", "ck_h1"):
+        if _k in OV[_l] and OV[_l][_k].endswith("."):
+            OV[_l][_k] = OV[_l][_k][:-1]

@@ -574,7 +574,8 @@ def P(name, L):
     <span class="eyebrow">{t("h_eyebrow")}</span>
     <h1>{t("h_h1")}</h1>
     <p class="lede">{t("h_lede")}</p>
-    <div class="btn-row"><a class="btn" href="projects.html">{t("h_b1")}</a><a class="btn ghost" href="services.html">{t("h_b2")}</a></div>
+    <div class="btn-row"><a class="btn" href="services.html">{t("h_b2")}</a><a class="btn ghost" href="projects.html">{t("h_b1")}</a></div>
+    <p class="fineprint hero-reg">{t("h_pill")}</p>
   </div>
   <figure class="emblem">
     <img src="../assets/img/logo-lg.png" alt="Aether EdTech" width="260" height="260" decoding="async">
@@ -643,7 +644,7 @@ def P(name, L):
 </div></section>
 <section class="sec"><div class="wrap two">
   <div class="col-block"><h3>{t("wh_h")}</h3><p>{t("wh_p")}</p></div>
-  <div class="col-block" id="status"><h3>{t("st_h")}</h3><div class="note warn"><p>{t("st_p")}</p></div></div>
+  <div class="col-block" id="status"><h3>{t("st_h")}</h3><div class="note"><p>{t("st_p")}</p></div></div>
 </div></section>
 '''
     if name == "projects":
@@ -669,10 +670,7 @@ def P(name, L):
 <section class="sec"><div class="wrap split">
   <div class="sticky"><span class="eyebrow">{t("sv_how")}</span><h2>{t("sv_h2")}</h2></div>
   <div>
-    <div class="two" style="margin-bottom:2.5rem">
-      <div class="col-block"><h3>{t("sv_f_h")}</h3><p>{t("sv_f_p")}</p></div>
-      <div class="col-block"><h3>{t("sv_p_h")}</h3><p>{t("sv_p_p")}</p></div>
-    </div>
+    
     <ol class="rows">
       <li><div><h3>{t("sv1h")}</h3><p>{t("sv1p")}</p></div></li>
       <li><div><h3>{t("sv2h")}</h3><p>{t("sv2p")}</p></div></li>
@@ -683,9 +681,13 @@ def P(name, L):
 </div></section>
 <section class="sec cyber" id="cybersecurity"><div class="wrap">
   <div class="cyber-head"><span class="eyebrow">{t("cs_eyebrow")}</span><h2>{t("cs_h2")}</h2><p class="lede">{t("cs_lede")}</p></div>
-  <div class="cyber-grid">{cy_cards(t("cs_items"))}</div>
+  <div class="cyber-grid cols3">{cy_cards(t("cs_items"))}</div>
   <div class="note" style="margin-top:2.5rem"><p>{t("cs_note")}</p></div>
   <p class="btn-row"><a class="btn" href="contact.html">{t("cs_btn")}</a></p>
+</div></section>
+<section class="sec tint"><div class="wrap">
+  <div class="sec-head"><span class="eyebrow">{t("pc_eyebrow")}</span><h2>{t("pc_h2")}</h2></div>
+  <div class="cyber-grid process">{cy_cards(t("pc_items"))}</div>
 </div></section>
 <section class="sec band"><div class="wrap band-grid"><div><h2>{t("sv_b_h")}</h2><p>{t("sv_b_p")}</p></div><div class="btn-row"><a class="btn light" href="contact.html">{t("sv_b_btn")}</a></div></div></section>
 '''
@@ -722,7 +724,7 @@ def P(name, L):
   <form class="contact" id="contact-form" action="mailto:{EMAIL}" method="post" enctype="text/plain" novalidate data-lang="{L}" data-sending="{t("ct_sending")}" data-btn="{t("ct_btn")}">
     <div><label for="name">{t("ct_name")}</label><input id="name" name="name" autocomplete="name" maxlength="100" required></div>
     <div><label for="email">{t("ct_mail")}</label><input id="email" name="email" type="email" autocomplete="email" maxlength="200" required></div>
-    <div><label for="topic">{t("ct_topic")}</label><select id="topic" name="topic"><option>{t("ct_o1")}</option><option>{t("ct_o2")}</option><option>{t("ct_o3")}</option><option>{t("ct_o4")}</option><option>{t("ct_o5")}</option><option>{t("ct_o6")}</option></select></div>
+    <div><label for="topic">{t("ct_topic")}</label><select id="topic" name="topic"><option>{t("ct_o4")}</option><option>{t("ct_o3")}</option><option>{t("ct_o5")}</option><option>{t("ct_o1")}</option><option>{t("ct_o2")}</option><option>{t("ct_o6")}</option></select></div>
     <div><label for="msg">{t("ct_msg")}</label><textarea id="msg" name="message" maxlength="5000" minlength="10" required></textarea></div>
     <div class="hp" aria-hidden="true"><label for="website">Website</label><input id="website" name="website" tabindex="-1" autocomplete="off"></div>
     <div><button class="btn" type="submit">{t("ct_btn")}</button><p class="fineprint">{t("ct_fine")}</p></div>
